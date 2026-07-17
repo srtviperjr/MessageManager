@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MessageManager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css?v=20260717c" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <header class="brand">
+          <p class="brand-mark">Local Messages</p>
+          <h1>MessageManager</h1>
+          <p class="brand-sub">Tag threads. Ask for a local summary when you need one.</p>
+        </header>
+
+        <section class="load-card" aria-label="Load threads">
+          <div class="load-card-head">
+            <p class="load-title">Threads to load</p>
+            <span id="thread-limit-value" class="load-value">50</span>
+          </div>
+          <input
+            id="thread-limit"
+            class="thread-limit-slider"
+            type="range"
+            min="5"
+            max="50"
+            step="1"
+            value="50"
+          />
+          <div class="load-card-meta">
+            <span>5</span>
+            <span>Most recent conversations</span>
+            <span id="thread-limit-max-label">…</span>
+          </div>
+          <button id="load-threads-btn" class="primary load-btn" type="button">Start loading</button>
+        </section>
+
+        <div class="search-wrap">
+          <input id="search" type="search" placeholder="Search loaded threads…" autocomplete="off" />
+        </div>
+
+        <nav class="filters" aria-label="Category filters">
+          <button class="filter active" data-category="all">All <span id="count-all">0</span></button>
+          <button class="filter" data-category="business">Business <span id="count-business">0</span></button>
+          <button class="filter" data-category="personal">Personal <span id="count-personal">0</span></button>
+          <button class="filter" data-category="uncategorized">Unset <span id="count-uncategorized">0</span></button>
+        </nav>
+
+        <section class="ai-toggle-card" aria-label="Apple Intelligence settings">
+          <div class="ai-toggle-row">
+            <div>
+              <p class="ai-toggle-title">Apple Intelligence</p>
+              <p class="ai-toggle-sub">AI summaries on Apple Silicon</p>
+            </div>
+            <label class="switch">
+              <input id="ai-toggle" type="checkbox" />
+              <span class="slider" aria-hidden="true"></span>
+              <span class="sr-only">Enable Apple Intelligence summaries</span>
+            </label>
+          </div>
+          <p id="ai-status" class="ai-status">Checking this Mac…</p>
+        </section>
+
+        <div id="access-banner" class="access-banner hidden"></div>
+        <div id="thread-list" class="thread-list" role="list"></div>
+      </aside>
+
+      <main class="main">
+        <div id="empty-state" class="empty-state">
+          <h2>Select a thread</h2>
+          <p>Select a thread to see its latest messages. Summaries describe the overall discussion in the selected day range.</p>
+        </div>
+
+        <section id="thread-view" class="thread-view hidden">
+          <header class="thread-header">
+            <div>
+              <button
+                type="button"
+                id="thread-category-label"
+                class="eyebrow category-label"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                Uncategorized
+              </button>
+              <h2 id="thread-title">Thread</h2>
+              <p id="thread-meta" class="meta"></p>
+            </div>
+            <div class="actions">
+              <div class="segmented" role="group" aria-label="Set category">
+                <button data-set-category="business">Business</button>
+                <button data-set-category="personal">Personal</button>
+                <button data-set-category="uncategorized">Unset</button>
+              </div>
+              <label class="days-field">
+                <span>Summary days</span>
+                <input id="summary-days" type="number" min="1" max="3650" value="30" />
+              </label>
+              <button id="summarize-btn" class="primary">Summarize</button>
+            </div>
+          </header>
+
+          <div id="summary-panel" class="summary-panel hidden">
+            <div class="summary-head">
+              <h3>Summary</h3>
+              <span id="summary-method" class="pill">Local extractive</span>
+            </div>
+            <p id="summary-meta" class="summary-meta"></p>
+            <p id="summary-text"></p>
+            <ul id="summary-topics" class="topics"></ul>
+            <ol id="summary-highlights" class="highlights"></ol>
+          </div>
+
+          <section id="messages-panel" class="messages-panel" aria-label="Recent messages">
+            <div class="messages-head">
+              <h3>Recent messages</h3>
+              <span id="messages-count" class="pill">Latest 10</span>
+            </div>
+            <div id="messages-list" class="messages-list">
+              <p class="messages-empty">Select a thread to load recent messages.</p>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <footer id="status-bar" class="status-bar" aria-live="polite">
+      <div class="status-bar-inner">
+        <span id="status-platform" class="status-chip">Detecting Mac…</span>
+        <div id="status-progress-wrap" class="status-progress-wrap hidden">
+          <div id="status-progress" class="status-progress"></div>
+        </div>
+        <span id="status-text">Ready</span>
+        <span id="status-percent" class="status-percent hidden"></span>
+        <button id="open-logs-btn" class="status-log-btn" type="button" title="Show log file paths">
+          Logs
+        </button>
+        <button id="quit-app-btn" class="status-log-btn status-quit-btn" type="button" title="Stop the local MessageManager server">
+          Quit
+        </button>
+      </div>
+    </footer>
+
+    <div id="category-flyout" class="category-flyout hidden" role="menu" aria-label="Set category">
+      <button type="button" data-flyout-category="business" role="menuitem">Business</button>
+      <button type="button" data-flyout-category="personal" role="menuitem">Personal</button>
+    </div>
+
+    <script src="/static/app.js?v=20260717c"></script>
+  </body>
+</html>

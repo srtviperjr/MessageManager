@@ -1,0 +1,18 @@
+---
+description: Rebuild MessageManager.app after code changes
+alwaysApply: true
+---
+
+# Rebuild MessageManager deployment after changes
+
+Whenever you change application code, UI, scripts, or packaging for this project, rebuild the clickable macOS app before finishing:
+
+```bash
+./scripts/create-macos-app.sh
+```
+
+That updates `dist/MessageManager.app`.
+
+Do this at the end of the turn that made deployable changes (Python under `app/`, files under `static/`, `scripts/macos/`, `requirements.txt`, or packaging scripts). Skip only for pure docs/conversation with no product file edits.
+
+After rebuilding, briefly tell the user that `dist/MessageManager.app` was updated and can be copied to the other Mac.

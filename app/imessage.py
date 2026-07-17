@@ -1,0 +1,463 @@
+"""Read-only access to the local macOS Messages database."""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import sqlite3
+import tempfile
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+from app.contacts import (
+    contacts_status,
+    display_label,
+    looks_like_handle,
+    refresh_contacts,
+    resolve_handle,
+    resolve_handles,
+)
+
+ProgressFn = Callable[[str, int], None]
+
+MESSAGES_DIR = Path.home() / "Library" / "Messages"
+CHAT_DB = MESSAGES_DIR / "chat.db"
+
+# Apple Core Data / Cocoa absolute time: nanoseconds since 2001-01-01 UTC
+APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
+
+
+class MessagesAccessError(Exception):
+    """Raised when chat.db cannot be read (usually Full Disk Access)."""
+
+
+def apple_time_to_datetime(value: Optional[int]) -> Optional[datetime]:
+    if value is None:
+        return None
+    # Older DBs used seconds; modern use nanoseconds.
+    seconds = value / 1_000_000_000 if value > 1_000_000_000_000 else float(value)
+    return APPLE_EPOCH + timedelta(seconds=seconds)
+
+
+def datetime_to_apple_bounds(dt: datetime) -> tuple[int, int]:
+    """Return (nanoseconds, seconds) Apple absolute-time cutoffs for SQL filters."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    seconds = (dt - APPLE_EPOCH).total_seconds()
+    return int(seconds * 1_000_000_000), int(seconds)
+
+
+def _copy_chat_db() -> Path:
+    if not CHAT_DB.exists():
+        raise MessagesAccessError(
+            f"Messages database not found at {CHAT_DB}. "
+            "Open the Messages app once, then try again."
+        )
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="imessage-categorizer-"))
+    try:
+        for name in ("chat.db", "chat.db-wal", "chat.db-shm"):
+            src = MESSAGES_DIR / name
+            if src.exists():
+                shutil.copy2(src, temp_dir / name)
+    except PermissionError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise MessagesAccessError(
+            "Permission denied reading ~/Library/Messages/chat.db. "
+            "Grant Full Disk Access to Terminal (or the app running this server) "
+            "in System Settings → Privacy & Security → Full Disk Access, then restart."
+        ) from exc
+    except OSError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise MessagesAccessError(f"Could not copy Messages database: {exc}") from exc
+
+    return temp_dir / "chat.db"
+
+
+def connect_messages() -> tuple[sqlite3.Connection, Path]:
+    """Return a connection to a temp copy of chat.db and the temp db path."""
+    db_path = _copy_chat_db()
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn, db_path
+
+
+def cleanup_temp_db(db_path: Path) -> None:
+    parent = db_path.parent
+    if parent.name.startswith("imessage-categorizer-"):
+        shutil.rmtree(parent, ignore_errors=True)
+
+
+def _decode_attributed_body(blob: Optional[bytes]) -> Optional[str]:
+    """Best-effort extract of plain text from attributedBody NSKeyedArchiver data."""
+    if not blob:
+        return None
+    try:
+        # Common pattern: UTF-8 / UTF-16 strings embedded in the archive.
+        text = blob.decode("utf-8", errors="ignore")
+        # Prefer the typedstream / NSString payload markers when present.
+        match = re.search(r"NSString\x00.\x01.\x00+([^\x00]+)", text)
+        if match:
+            candidate = match.group(1).strip()
+            if candidate:
+                return candidate
+        # Fallback: longest printable run
+        runs = re.findall(r"[\x20-\x7E\u00A0-\uFFFF]{4,}", text)
+        if runs:
+            return max(runs, key=len).strip()
+    except Exception:
+        return None
+    return None
+
+
+def message_text(row: sqlite3.Row) -> str:
+    text = row["text"] if "text" in row.keys() else None
+    if text:
+        return text
+    body = row["attributedBody"] if "attributedBody" in row.keys() else None
+    decoded = _decode_attributed_body(body)
+    return decoded or ""
+
+
+def _labeled_participants(participants: list[str]) -> list[str]:
+    resolved = resolve_handles(participants)
+    return [resolved.get(p, p) for p in participants]
+
+
+def thread_display_name(row: sqlite3.Row, participants: list[str]) -> str:
+    display = (row["display_name"] or "").strip()
+    if display and not looks_like_handle(display):
+        return display
+
+    labels = _labeled_participants(participants)
+    if labels:
+        return ", ".join(labels[:4]) + ("…" if len(labels) > 4 else "")
+
+    if display:
+        return resolve_handle(display) or display
+
+    ident = (row["chat_identifier"] or "").strip()
+    if ident:
+        return resolve_handle(ident) or ident
+    return f"Chat {row['id']}"
+
+
+def _report(progress: Optional[ProgressFn], message: str, percent: int) -> None:
+    if progress:
+        progress(message, max(0, min(100, int(percent))))
+
+
+# Practical upper bound so a bad client can't request an unbounded load.
+MAX_THREAD_LIMIT = 100_000
+
+
+def count_threads() -> int:
+    """Total conversations available in Messages."""
+    conn, db_path = connect_messages()
+    try:
+        row = conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()
+        return int(row["n"] or 0)
+    finally:
+        conn.close()
+        cleanup_temp_db(db_path)
+
+
+def list_threads(
+    limit: int = 50, progress: Optional[ProgressFn] = None
+) -> tuple[list[dict[str, Any]], int]:
+    """Lightweight thread index for the most recent conversations.
+
+    Returns (threads, available_thread_count).
+    """
+    limit = max(1, min(int(limit), MAX_THREAD_LIMIT))
+    _report(progress, "Copying Messages database…", 8)
+    conn, db_path = connect_messages()
+    try:
+        available = int(conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()["n"] or 0)
+        if available > 0:
+            limit = min(limit, available)
+
+        _report(progress, "Loading Contacts (timeout 6s)…", 18)
+        refresh_contacts(timeout=6.0)
+        status = contacts_status(quick=True)
+        if status.get("error") and not status.get("contact_keys"):
+            _report(
+                progress,
+                "Contacts unavailable — using phone numbers…",
+                28,
+            )
+        elif status.get("error"):
+            _report(progress, f"Contacts: {status['error']}", 28)
+        else:
+            _report(
+                progress,
+                f"Contacts ready ({status.get('contact_keys', 0)} matches)…",
+                28,
+            )
+
+        _report(progress, f"Listing {limit} most recent conversations…", 40)
+        rows = conn.execute(
+            """
+            SELECT
+              c.ROWID AS id,
+              c.guid AS guid,
+              c.chat_identifier AS chat_identifier,
+              c.display_name AS display_name,
+              c.style AS style,
+              (
+                SELECT MAX(cmj.message_date)
+                FROM chat_message_join cmj
+                WHERE cmj.chat_id = c.ROWID
+              ) AS last_date,
+              (
+                SELECT COUNT(*)
+                FROM chat_message_join cmj
+                WHERE cmj.chat_id = c.ROWID
+              ) AS message_count
+            FROM chat c
+            ORDER BY last_date DESC NULLS LAST
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        chat_ids = [int(row["id"]) for row in rows]
+        total = len(chat_ids)
+        _report(progress, f"Found {total} conversations…", 55)
+
+        participants_by_chat: dict[int, list[str]] = defaultdict(list)
+        if chat_ids:
+            _report(progress, "Resolving contact names…", 65)
+            placeholders = ",".join("?" * len(chat_ids))
+            for handle_row in conn.execute(
+                f"""
+                SELECT chj.chat_id AS chat_id, h.id AS handle
+                FROM chat_handle_join chj
+                JOIN handle h ON h.ROWID = chj.handle_id
+                WHERE chj.chat_id IN ({placeholders})
+                ORDER BY chj.chat_id, h.ROWID
+                """,
+                chat_ids,
+            ):
+                participants_by_chat[int(handle_row["chat_id"])].append(handle_row["handle"])
+
+        all_handles = sorted({h for handles in participants_by_chat.values() for h in handles})
+        handle_names = resolve_handles(all_handles)
+
+        # One latest preview per thread, fetched individually so progress updates
+        # and a huge window-function scan over the full message table is avoided.
+        preview_by_chat: dict[int, str] = {}
+        if chat_ids:
+            for idx, chat_id in enumerate(chat_ids):
+                label_handles = participants_by_chat.get(chat_id, [])
+                label = ", ".join(handle_names.get(h, h) for h in label_handles[:2]) or f"chat {chat_id}"
+                pct = 70 + int(25 * idx / max(total, 1))
+                _report(
+                    progress,
+                    f"Loading preview {idx + 1}/{total}: {label[:48]}",
+                    pct,
+                )
+                try:
+                    msg = conn.execute(
+                        """
+                        SELECT m.text, m.attributedBody
+                        FROM message m
+                        JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+                        WHERE cmj.chat_id = ?
+                        ORDER BY m.date DESC
+                        LIMIT 1
+                        """,
+                        (chat_id,),
+                    ).fetchone()
+                except sqlite3.Error:
+                    continue
+                if not msg:
+                    continue
+                text = message_text(msg)
+                if text:
+                    preview_by_chat[chat_id] = text[:180]
+
+        threads: list[dict[str, Any]] = []
+        for row in rows:
+            participants = participants_by_chat.get(int(row["id"]), [])
+            labeled = [handle_names.get(p, p) for p in participants]
+            last_dt = apple_time_to_datetime(row["last_date"])
+            threads.append(
+                {
+                    "id": row["id"],
+                    "guid": row["guid"],
+                    "chat_identifier": row["chat_identifier"],
+                    "display_name": thread_display_name(row, participants),
+                    "participants": participants,
+                    "participant_names": labeled,
+                    "is_group": bool(row["style"] and row["style"] != 45),
+                    "message_count": row["message_count"] or 0,
+                    "last_message_at": last_dt.isoformat() if last_dt else None,
+                    "preview": preview_by_chat.get(int(row["id"]), ""),
+                }
+            )
+
+        _report(progress, f"Loaded {len(threads)} threads", 100)
+        return threads, available
+    finally:
+        conn.close()
+        cleanup_temp_db(db_path)
+
+
+def get_thread_messages(
+    chat_id: int,
+    limit: int = 500,
+    days: Optional[int] = None,
+    progress: Optional[ProgressFn] = None,
+) -> dict[str, Any]:
+    """Load message bodies for one thread. Used for summarization, not the list."""
+    _report(progress, "Copying Messages database…", 8)
+    conn, db_path = connect_messages()
+    try:
+        _report(progress, "Loading Contacts (timeout 6s)…", 16)
+        refresh_contacts(timeout=6.0)
+        window = f"last {days} day{'s' if days != 1 else ''}" if days else "conversation"
+        _report(progress, f"Reading messages ({window})…", 35)
+        chat = conn.execute(
+            """
+            SELECT ROWID AS id, guid, chat_identifier, display_name, style
+            FROM chat WHERE ROWID = ?
+            """,
+            (chat_id,),
+        ).fetchone()
+        if not chat:
+            raise KeyError(f"Chat {chat_id} not found")
+
+        participants = [
+            r["id"]
+            for r in conn.execute(
+                """
+                SELECT h.id
+                FROM handle h
+                JOIN chat_handle_join chj ON chj.handle_id = h.ROWID
+                WHERE chj.chat_id = ?
+                ORDER BY h.ROWID
+                """,
+                (chat_id,),
+            ).fetchall()
+        ]
+
+        params: list[Any] = [chat_id]
+        date_filter = ""
+        cutoff_iso = None
+        if days is not None and days > 0:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            cutoff_iso = cutoff.isoformat()
+            cutoff_ns, cutoff_sec = datetime_to_apple_bounds(cutoff)
+            # Support both modern (ns) and legacy (sec) Messages date encodings.
+            date_filter = """
+              AND (
+                m.date >= ?
+                OR (m.date < 1000000000000 AND m.date >= ?)
+              )
+            """
+            params.extend([cutoff_ns, cutoff_sec])
+        params.append(limit)
+
+        rows = conn.execute(
+            f"""
+            SELECT
+              m.ROWID AS id,
+              m.text,
+              m.attributedBody,
+              m.is_from_me,
+              m.date,
+              m.cache_has_attachments,
+              h.id AS handle
+            FROM message m
+            JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+            LEFT JOIN handle h ON h.ROWID = m.handle_id
+            WHERE cmj.chat_id = ?
+            {date_filter}
+            ORDER BY m.date DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+        _report(progress, "Matching contact names…", 70)
+        labeled = _labeled_participants(participants)
+        handle_names = resolve_handles(
+            [r["handle"] for r in rows if r["handle"] and not r["is_from_me"]]
+        )
+
+        _report(progress, "Preparing messages…", 85)
+        messages = []
+        for row in reversed(rows):
+            dt = apple_time_to_datetime(row["date"])
+            text = message_text(row)
+            handle = row["handle"]
+            if row["is_from_me"]:
+                sender = "me"
+                sender_name = "You"
+            else:
+                sender = handle or "unknown"
+                sender_name = handle_names.get(handle, display_label(handle)) if handle else "unknown"
+            messages.append(
+                {
+                    "id": row["id"],
+                    "text": text,
+                    "is_from_me": bool(row["is_from_me"]),
+                    "sender": sender,
+                    "sender_name": sender_name,
+                    "sent_at": dt.isoformat() if dt else None,
+                    "has_attachments": bool(row["cache_has_attachments"]),
+                }
+            )
+
+        _report(progress, f"Loaded {len(messages)} messages", 88)
+        return {
+            "id": chat["id"],
+            "guid": chat["guid"],
+            "chat_identifier": chat["chat_identifier"],
+            "display_name": thread_display_name(chat, participants),
+            "participants": participants,
+            "participant_names": labeled,
+            "messages": messages,
+            "days": days,
+            "cutoff_at": cutoff_iso,
+        }
+    finally:
+        conn.close()
+        cleanup_temp_db(db_path)
+
+
+def access_status() -> dict[str, Any]:
+    exists = CHAT_DB.exists()
+    readable = False
+    error: Optional[str] = None
+    available_threads: Optional[int] = None
+    if exists:
+        try:
+            conn, db_path = connect_messages()
+            conn.execute("SELECT 1 FROM chat LIMIT 1")
+            available_threads = int(
+                conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()["n"] or 0
+            )
+            conn.close()
+            cleanup_temp_db(db_path)
+            readable = True
+        except MessagesAccessError as exc:
+            error = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+    else:
+        error = f"Database not found at {CHAT_DB}"
+    return {
+        "path": str(CHAT_DB),
+        "exists": exists,
+        "readable": readable,
+        "error": error,
+        "uid": os.getuid(),
+        "available_threads": available_threads,
+    }
