@@ -13,6 +13,12 @@ Whenever you change application code, UI, scripts, or packaging for this project
 
 That updates `dist/MessageManager.app`.
 
+If installer/packaging scripts changed (`scripts/create-macos-installer.sh`, `scripts/macos/pkg/`), also build the pkg:
+
+```bash
+./scripts/create-macos-installer.sh
+```
+
 Do this at the end of the turn that made deployable changes (Python under `app/`, files under `static/`, `scripts/macos/`, `requirements.txt`, or packaging scripts). Skip only for pure docs/conversation with no product file edits.
 
-After rebuilding, briefly tell the user that `dist/MessageManager.app` was updated and can be copied to the other Mac.
+After rebuilding, briefly tell the user that `dist/MessageManager.app` (and the `.pkg` if built) was updated.

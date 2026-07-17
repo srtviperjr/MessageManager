@@ -11,21 +11,43 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 APP_PAYLOAD="${RESOURCES}/app"
 
-echo "Building ${APP}"
+VERSION="$(
+  python3 - <<'PY'
+from pathlib import Path
+import re
+text = Path("app/version.py").read_text()
+m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
+print(m.group(1) if m else "1.0.0")
+PY
+)"
+BUNDLE_ID="$(
+  python3 - <<'PY'
+from pathlib import Path
+import re
+text = Path("app/version.py").read_text()
+m = re.search(r'BUNDLE_ID\s*=\s*"([^"]+)"', text)
+print(m.group(1) if m else "com.srtviperjr.messagemanager")
+PY
+)"
+
+cd "${ROOT}"
+echo "Building ${APP} (v${VERSION})"
 rm -rf "${APP}"
 mkdir -p "${MACOS}" "${APP_PAYLOAD}"
 
-# Bundle project files (not venv, data, git, dist)
+# Bundle project files (not venv, data, git, dist, tools)
 rsync -a \
   --exclude '.git' \
   --exclude '.cursor' \
   --exclude 'dist' \
   --exclude 'data' \
+  --exclude '.tools' \
   --exclude '.venv' \
   --exclude 'venv' \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
   --exclude '.DS_Store' \
+  --exclude 'logs' \
   "${ROOT}/" "${APP_PAYLOAD}/"
 
 cp "${ROOT}/scripts/macos/launch.sh" "${MACOS}/${APP_NAME}"
@@ -34,6 +56,9 @@ chmod +x "${MACOS}/${APP_NAME}"
 if [[ -f "${ROOT}/assets/AppIcon.icns" ]]; then
   cp "${ROOT}/assets/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
 fi
+
+# Embed version for the launcher / updates UI.
+printf '%s\n' "${VERSION}" > "${RESOURCES}/VERSION"
 
 cat > "${CONTENTS}/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -45,11 +70,11 @@ cat > "${CONTENTS}/Info.plist" <<EOF
   <key>CFBundleDisplayName</key>
   <string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key>
-  <string>com.local.messagemanager</string>
+  <string>${BUNDLE_ID}</string>
   <key>CFBundleVersion</key>
-  <string>0.1.0</string>
+  <string>${VERSION}</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>${VERSION}</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
@@ -60,6 +85,8 @@ cat > "${CONTENTS}/Info.plist" <<EOF
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>MessageManager shows setup prompts and can open System Settings for Full Disk Access.</string>
 </dict>
 </plist>
 EOF
@@ -68,7 +95,4 @@ EOF
 xattr -cr "${APP}" 2>/dev/null || true
 
 echo "Done: ${APP}"
-echo
-echo "Copy \"${APP_NAME}.app\" to the other Mac's Applications folder."
-echo "On first launch: right-click → Open (if Gatekeeper blocks it),"
-echo "then grant Full Disk Access to MessageManager."
+echo "Version: ${VERSION}"

@@ -1,4 +1,4 @@
-"""Local web API for browsing, categorizing, and summarizing iMessage threads."""
+"""Local web API for browsing, categorizing, and summarizing iMessage conversations."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from app import categories as categories_store
 from app import settings as settings_store
+from app.categories import BUILTIN_CATEGORIES
 from app.apple_intelligence import (
     AppleIntelligenceError,
     capability_status,
@@ -33,19 +34,32 @@ from app.imessage import (
     list_threads,
 )
 from app.logging_util import configure_logging, get_logger, log_dir, log_file_path
+from app.migrations import run_migrations
 from app.platform_info import platform_status
 from app.summarize import summarize_thread
+from app import updates as updates_store
+from app.version import APP_NAME, APP_VERSION, GITHUB_REPO
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 configure_logging()
 log = get_logger("messagemanager")
+try:
+    MIGRATION_STATUS = run_migrations()
+    log.info(
+        "Migrations ready schema=%s previous_app=%s",
+        MIGRATION_STATUS.get("schema_version"),
+        MIGRATION_STATUS.get("last_app_version"),
+    )
+except Exception:  # noqa: BLE001
+    MIGRATION_STATUS = {"schema_version": None, "error": "migration_failed"}
+    log.exception("Startup migrations failed")
 
-app = FastAPI(title="MessageManager", version="0.1.0")
+app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
 
 class CategoryUpdate(BaseModel):
-    category: Literal["business", "personal", "uncategorized"]
+    category: str = Field(min_length=1, max_length=40)
     chat_guid: Optional[str] = None
     notes: Optional[str] = None
 
@@ -58,11 +72,24 @@ class SummaryRequest(BaseModel):
     use_apple_intelligence: Optional[bool] = None
 
 
+class CustomCategory(BaseModel):
+    id: Optional[str] = Field(default=None, max_length=40)
+    label: str = Field(min_length=1, max_length=60)
+
+
 class SettingsUpdate(BaseModel):
     apple_intelligence_enabled: Optional[bool] = None
     apple_intelligence_shortcut: Optional[str] = Field(default=None, min_length=1, max_length=200)
     summary_days: Optional[int] = Field(default=None, ge=1, le=3650)
     thread_limit: Optional[int] = Field(default=None, ge=5, le=MAX_THREAD_LIMIT)
+    thread_load_mode: Optional[Literal["count", "activity"]] = None
+    thread_activity_value: Optional[int] = Field(default=None, ge=1, le=100)
+    thread_activity_unit: Optional[Literal["months", "years"]] = None
+    auto_load_on_start: Optional[bool] = None
+    default_message_limit: Optional[int] = Field(default=None, ge=1, le=500)
+    custom_categories: Optional[list[CustomCategory]] = None
+    enabled_categories: Optional[list[str]] = None
+    hidden_from_default: Optional[list[str]] = None
 
 
 def _sse(payload: dict[str, Any]) -> str:
@@ -80,9 +107,10 @@ def _enrich_threads(
         thread["category"] = info["category"] if info else "uncategorized"
         thread["notes"] = info.get("notes") if info else None
 
-    counts = {"business": 0, "personal": 0, "uncategorized": 0}
+    counts: dict[str, int] = {key: 0 for key in BUILTIN_CATEGORIES}
     for t in threads:
-        counts[t["category"]] = counts.get(t["category"], 0) + 1
+        cat = t["category"] or "uncategorized"
+        counts[cat] = counts.get(cat, 0) + 1
 
     if category and category != "all":
         threads = [t for t in threads if t["category"] == category]
@@ -167,11 +195,29 @@ def _build_summary(chat_id: int, req: SummaryRequest, progress=None) -> dict[str
 
 @app.get("/api/health")
 def health() -> dict:
+    messages = access_status()
+    contacts = contacts_status(quick=True)
     return {
         "ok": True,
+        "version": APP_VERSION,
+        "app_name": APP_NAME,
+        "github_repo": GITHUB_REPO,
+        "migration": MIGRATION_STATUS,
         "platform": platform_status(),
-        "messages": access_status(),
-        "contacts": contacts_status(quick=True),
+        "messages": messages,
+        "contacts": contacts,
+        "permissions": {
+            "full_disk_access": bool(messages.get("readable")),
+            "messages_readable": bool(messages.get("readable")),
+            "contacts_readable": bool(contacts.get("available")),
+            "needs_attention": (not messages.get("readable")) or (not contacts.get("available")),
+            "guidance": (
+                "Grant Full Disk Access to MessageManager in System Settings → Privacy & Security, "
+                "then quit and reopen the app."
+                if not messages.get("readable")
+                else None
+            ),
+        },
         "apple_intelligence": capability_status(),
         "settings": settings_store.get_settings(),
         "logs": {
@@ -180,6 +226,72 @@ def health() -> dict:
             "launch_log": str(log_dir() / "launch.log"),
         },
     }
+
+
+@app.get("/api/version")
+def api_version() -> dict:
+    return {
+        "app_name": APP_NAME,
+        "version": APP_VERSION,
+        "github_repo": GITHUB_REPO,
+        "migration": MIGRATION_STATUS,
+    }
+
+
+@app.get("/api/updates/check")
+def api_updates_check() -> dict:
+    return updates_store.check_for_update()
+
+
+class UpdateDownloadRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+
+
+@app.post("/api/updates/download")
+def api_updates_download(body: UpdateDownloadRequest) -> dict:
+    url = body.url.strip()
+    if not url.startswith("https://github.com/") and not url.startswith(
+        "https://objects.githubusercontent.com/"
+    ):
+        raise HTTPException(status_code=400, detail="Only GitHub release downloads are allowed.")
+    result = updates_store.download_installer(url)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result.get("detail") or "Download failed")
+    # Open the downloaded installer for the user.
+    path = result.get("path")
+    if path:
+        try:
+            import subprocess
+
+            subprocess.Popen(["open", path])  # noqa: S603
+        except Exception:  # noqa: BLE001
+            log.exception("Could not open downloaded installer")
+    return result
+
+
+@app.post("/api/permissions/open-settings")
+def api_open_privacy_settings() -> dict:
+    """Open macOS Full Disk Access settings for the user."""
+    import subprocess
+
+    try:
+        subprocess.Popen(  # noqa: S603
+            [
+                "open",
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles",
+            ]
+        )
+    except Exception:
+        try:
+            subprocess.Popen(  # noqa: S603
+                [
+                    "open",
+                    "/System/Library/PreferencePanes/Security.prefPane",
+                ]
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @app.post("/api/shutdown")
@@ -216,6 +328,12 @@ def api_put_settings(body: SettingsUpdate) -> dict:
             status_code=400,
             detail="Apple Intelligence requires Apple Silicon (M1 or later).",
         )
+    if "custom_categories" in patch:
+        patch["custom_categories"] = [
+            {"id": c.get("id"), "label": c.get("label")}
+            for c in patch["custom_categories"]
+            if isinstance(c, dict)
+        ]
     updated = settings_store.update_settings(patch)
     return {
         "settings": updated,
@@ -239,12 +357,13 @@ def api_threads_available() -> dict:
 
 @app.get("/api/threads")
 def api_threads(
-    category: Optional[Literal["business", "personal", "uncategorized", "all"]] = Query("all"),
+    category: Optional[str] = Query("all"),
     q: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=MAX_THREAD_LIMIT),
+    activity_days: Optional[int] = Query(None, ge=1, le=36500),
 ) -> dict:
     try:
-        threads, available = list_threads(limit=limit)
+        threads, available = list_threads(limit=limit, activity_days=activity_days)
     except MessagesAccessError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     payload = _enrich_threads(threads, category, q)
@@ -254,9 +373,10 @@ def api_threads(
 
 @app.get("/api/threads/stream")
 def api_threads_stream(
-    category: Optional[Literal["business", "personal", "uncategorized", "all"]] = Query("all"),
+    category: Optional[str] = Query("all"),
     q: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=MAX_THREAD_LIMIT),
+    activity_days: Optional[int] = Query(None, ge=1, le=36500),
 ) -> StreamingResponse:
     def generate():
         events: queue.Queue = queue.Queue()
@@ -266,7 +386,9 @@ def api_threads_stream(
 
         def worker() -> None:
             try:
-                threads, available = list_threads(limit=limit, progress=progress)
+                threads, available = list_threads(
+                    limit=limit, activity_days=activity_days, progress=progress
+                )
                 payload = _enrich_threads(threads, category, q)
                 payload["available_threads"] = available
                 events.put({"type": "result", **payload})
@@ -297,26 +419,40 @@ def api_threads_stream(
 
 @app.put("/api/threads/{chat_id}/category")
 def api_set_category(chat_id: int, body: CategoryUpdate) -> dict:
-    return categories_store.set_category(
-        chat_id,
-        body.category,
-        chat_guid=body.chat_guid,
-        notes=body.notes,
-    )
+    category = (body.category or "").strip().lower()
+    settings = settings_store.get_settings()
+    known = set(settings.get("enabled_categories") or list(BUILTIN_CATEGORIES))
+    known.add("uncategorized")
+    known |= {c["id"] for c in settings.get("custom_categories") or []}
+    if category not in known:
+        raise HTTPException(status_code=400, detail=f"Category is not available: {category}")
+    try:
+        return categories_store.set_category(
+            chat_id,
+            category,
+            chat_guid=body.chat_guid,
+            notes=body.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/threads/{chat_id}/messages")
 def api_thread_messages(
     chat_id: int,
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=20_000),
 ) -> dict:
-    """Return the most recent messages for a thread (chronological order)."""
+    """Return the most recent messages for a conversation (chronological order)."""
     try:
         thread = get_thread_messages(chat_id, limit=limit, days=None)
+        messages = thread.get("messages") or []
         return {
             "id": thread["id"],
             "display_name": thread.get("display_name"),
-            "messages": thread.get("messages") or [],
+            "messages": messages,
+            "limit": limit,
+            "returned": len(messages),
+            "has_more": len(messages) >= limit,
         }
     except MessagesAccessError as exc:
         log.warning("Messages access error: %s", exc)

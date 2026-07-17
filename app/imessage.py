@@ -168,19 +168,26 @@ def count_threads() -> int:
 
 
 def list_threads(
-    limit: int = 50, progress: Optional[ProgressFn] = None
+    limit: Optional[int] = 50,
+    activity_days: Optional[int] = None,
+    progress: Optional[ProgressFn] = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Lightweight thread index for the most recent conversations.
+    """Lightweight thread index for recent conversations.
 
-    Returns (threads, available_thread_count).
+    Use ``limit`` for the N most recent threads, or ``activity_days`` to include
+    every thread with activity in that window. Returns (threads, available_count).
     """
-    limit = max(1, min(int(limit), MAX_THREAD_LIMIT))
+    use_activity = activity_days is not None and int(activity_days) > 0
+    if use_activity:
+        activity_days = max(1, min(int(activity_days), 36500))
+        limit = MAX_THREAD_LIMIT
+    else:
+        limit = max(1, min(int(limit or 50), MAX_THREAD_LIMIT))
+
     _report(progress, "Copying Messages database…", 8)
     conn, db_path = connect_messages()
     try:
         available = int(conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()["n"] or 0)
-        if available > 0:
-            limit = min(limit, available)
 
         _report(progress, "Loading Contacts (timeout 6s)…", 18)
         refresh_contacts(timeout=6.0)
@@ -200,9 +207,46 @@ def list_threads(
                 28,
             )
 
-        _report(progress, f"Listing {limit} most recent conversations…", 40)
-        rows = conn.execute(
+        params: list[Any] = []
+        activity_sql = ""
+        if use_activity:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=activity_days)
+            cutoff_ns, cutoff_sec = datetime_to_apple_bounds(cutoff)
+            activity_sql = """
+              AND (
+                (
+                  SELECT MAX(cmj2.message_date)
+                  FROM chat_message_join cmj2
+                  WHERE cmj2.chat_id = c.ROWID
+                ) >= ?
+                OR (
+                  (
+                    SELECT MAX(cmj2.message_date)
+                    FROM chat_message_join cmj2
+                    WHERE cmj2.chat_id = c.ROWID
+                  ) < 1000000000000
+                  AND (
+                    SELECT MAX(cmj2.message_date)
+                    FROM chat_message_join cmj2
+                    WHERE cmj2.chat_id = c.ROWID
+                  ) >= ?
+                )
+              )
             """
+            params.extend([cutoff_ns, cutoff_sec])
+            _report(
+                progress,
+                f"Listing conversations active in the last {activity_days} days…",
+                40,
+            )
+        else:
+            if available > 0:
+                limit = min(limit, available)
+            _report(progress, f"Listing {limit} most recent conversations…", 40)
+
+        params.append(limit)
+        rows = conn.execute(
+            f"""
             SELECT
               c.ROWID AS id,
               c.guid AS guid,
@@ -220,10 +264,12 @@ def list_threads(
                 WHERE cmj.chat_id = c.ROWID
               ) AS message_count
             FROM chat c
+            WHERE 1=1
+            {activity_sql}
             ORDER BY last_date DESC NULLS LAST
             LIMIT ?
             """,
-            (limit,),
+            params,
         ).fetchall()
 
         chat_ids = [int(row["id"]) for row in rows]
@@ -302,7 +348,7 @@ def list_threads(
                 }
             )
 
-        _report(progress, f"Loaded {len(threads)} threads", 100)
+        _report(progress, f"Loaded {len(threads)} conversations", 100)
         return threads, available
     finally:
         conn.close()

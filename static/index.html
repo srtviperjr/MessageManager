@@ -10,73 +10,115 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260717c" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260717h" />
   </head>
   <body>
     <div class="app">
       <aside class="sidebar">
         <header class="brand">
-          <p class="brand-mark">Local Messages</p>
-          <h1>MessageManager</h1>
-          <p class="brand-sub">Tag threads. Ask for a local summary when you need one.</p>
+          <div class="brand-row">
+            <div>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.0</span></span></h1>
+            </div>
+            <button
+              type="button"
+              id="settings-btn"
+              class="icon-btn"
+              title="Settings"
+              aria-label="Open settings"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.5.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.82 14.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.26.42.5.42h3.8c.24 0 .45-.18.5-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.24.1.5 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+                />
+              </svg>
+            </button>
+          </div>
         </header>
 
-        <section class="load-card" aria-label="Load threads">
-          <div class="load-card-head">
-            <p class="load-title">Threads to load</p>
-            <span id="thread-limit-value" class="load-value">50</span>
+        <section id="load-card" class="load-card" aria-label="Load conversations">
+          <button
+            type="button"
+            id="load-card-toggle"
+            class="load-card-toggle"
+            aria-expanded="true"
+            aria-controls="load-card-body"
+          >
+            <span class="load-card-toggle-label">
+              <span class="load-title">Conversations to load</span>
+              <span id="thread-limit-value" class="load-value">50</span>
+            </span>
+            <span id="load-card-chevron" class="load-card-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div id="load-card-body" class="load-card-body">
+            <div class="load-mode-toggle" role="group" aria-label="Load mode">
+              <button type="button" class="load-mode-btn active" data-load-mode="count">By count</button>
+              <button type="button" class="load-mode-btn" data-load-mode="activity">By activity</button>
+            </div>
+            <div id="load-count-controls" class="load-mode-panel">
+              <input
+                id="thread-limit"
+                class="thread-limit-slider"
+                type="range"
+                min="5"
+                max="50"
+                step="1"
+                value="50"
+              />
+              <div class="load-card-meta">
+                <span>5</span>
+                <span>Most recent conversations</span>
+                <span id="thread-limit-max-label">…</span>
+              </div>
+            </div>
+            <div id="load-activity-controls" class="load-mode-panel hidden">
+              <div class="load-activity-row">
+                <label class="settings-field">
+                  <span>Active within the last</span>
+                  <input id="thread-activity-value" type="number" min="1" max="100" value="6" />
+                </label>
+                <label class="settings-field">
+                  <span>Unit</span>
+                  <select id="thread-activity-unit">
+                    <option value="months">Months</option>
+                    <option value="years">Years</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <button id="load-threads-btn" class="primary load-btn" type="button">Start loading</button>
           </div>
-          <input
-            id="thread-limit"
-            class="thread-limit-slider"
-            type="range"
-            min="5"
-            max="50"
-            step="1"
-            value="50"
-          />
-          <div class="load-card-meta">
-            <span>5</span>
-            <span>Most recent conversations</span>
-            <span id="thread-limit-max-label">…</span>
-          </div>
-          <button id="load-threads-btn" class="primary load-btn" type="button">Start loading</button>
         </section>
 
         <div class="search-wrap">
-          <input id="search" type="search" placeholder="Search loaded threads…" autocomplete="off" />
+          <input id="search" type="search" placeholder="Search loaded conversations…" autocomplete="off" />
         </div>
 
-        <nav class="filters" aria-label="Category filters">
-          <button class="filter active" data-category="all">All <span id="count-all">0</span></button>
-          <button class="filter" data-category="business">Business <span id="count-business">0</span></button>
-          <button class="filter" data-category="personal">Personal <span id="count-personal">0</span></button>
-          <button class="filter" data-category="uncategorized">Unset <span id="count-uncategorized">0</span></button>
-        </nav>
-
-        <section class="ai-toggle-card" aria-label="Apple Intelligence settings">
-          <div class="ai-toggle-row">
-            <div>
-              <p class="ai-toggle-title">Apple Intelligence</p>
-              <p class="ai-toggle-sub">AI summaries on Apple Silicon</p>
-            </div>
-            <label class="switch">
-              <input id="ai-toggle" type="checkbox" />
-              <span class="slider" aria-hidden="true"></span>
-              <span class="sr-only">Enable Apple Intelligence summaries</span>
-            </label>
-          </div>
-          <p id="ai-status" class="ai-status">Checking this Mac…</p>
-        </section>
-
         <div id="access-banner" class="access-banner hidden"></div>
+        <div id="permissions-card" class="permissions-card hidden">
+          <p class="permissions-title">Permissions needed</p>
+          <p id="permissions-text" class="permissions-text">
+            MessageManager needs Full Disk Access to read Messages and Contacts.
+          </p>
+          <div class="permissions-actions">
+            <button type="button" id="open-privacy-btn" class="primary load-btn">Open Privacy Settings</button>
+            <button type="button" id="recheck-permissions-btn" class="settings-cancel">I’ve granted access — Recheck</button>
+          </div>
+        </div>
+        <div id="update-banner" class="update-banner hidden">
+          <span id="update-banner-text">Update available</span>
+          <button type="button" id="update-banner-btn" class="status-log-btn">View</button>
+        </div>
         <div id="thread-list" class="thread-list" role="list"></div>
       </aside>
 
       <main class="main">
+        <nav id="category-summary" class="category-summary" aria-label="Category summary"></nav>
+
         <div id="empty-state" class="empty-state">
-          <h2>Select a thread</h2>
-          <p>Select a thread to see its latest messages. Summaries describe the overall discussion in the selected day range.</p>
+          <h2>Select a conversation</h2>
+          <p>Select a conversation to see its latest messages. Summaries describe the overall discussion in the selected day range.</p>
         </div>
 
         <section id="thread-view" class="thread-view hidden">
@@ -91,15 +133,11 @@
               >
                 Uncategorized
               </button>
-              <h2 id="thread-title">Thread</h2>
+              <h2 id="thread-title">Conversation</h2>
               <p id="thread-meta" class="meta"></p>
             </div>
             <div class="actions">
-              <div class="segmented" role="group" aria-label="Set category">
-                <button data-set-category="business">Business</button>
-                <button data-set-category="personal">Personal</button>
-                <button data-set-category="uncategorized">Unset</button>
-              </div>
+              <div id="category-segmented" class="segmented" role="group" aria-label="Set category"></div>
               <label class="days-field">
                 <span>Summary days</span>
                 <input id="summary-days" type="number" min="1" max="3650" value="30" />
@@ -122,10 +160,19 @@
           <section id="messages-panel" class="messages-panel" aria-label="Recent messages">
             <div class="messages-head">
               <h3>Recent messages</h3>
-              <span id="messages-count" class="pill">Latest 10</span>
+              <button
+                type="button"
+                id="messages-count"
+                class="pill messages-count-btn"
+                aria-haspopup="true"
+                aria-expanded="false"
+                title="Load more messages"
+              >
+                Latest 10
+              </button>
             </div>
             <div id="messages-list" class="messages-list">
-              <p class="messages-empty">Select a thread to load recent messages.</p>
+              <p class="messages-empty">Select a conversation to load recent messages.</p>
             </div>
           </section>
         </section>
@@ -149,11 +196,123 @@
       </div>
     </footer>
 
-    <div id="category-flyout" class="category-flyout hidden" role="menu" aria-label="Set category">
-      <button type="button" data-flyout-category="business" role="menuitem">Business</button>
-      <button type="button" data-flyout-category="personal" role="menuitem">Personal</button>
+    <div id="category-flyout" class="category-flyout hidden" role="menu" aria-label="Set category"></div>
+
+    <div id="messages-load-flyout" class="messages-load-flyout hidden" role="menu" aria-label="Load more messages">
+      <button type="button" data-load-messages="more" role="menuitem">Load 100 more</button>
+      <button type="button" data-load-messages="all" role="menuitem">Load all</button>
     </div>
 
-    <script src="/static/app.js?v=20260717c"></script>
+    <div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-backdrop" data-close-settings></div>
+      <div class="settings-panel">
+        <header class="settings-head">
+          <h2 id="settings-title">Settings</h2>
+          <button type="button" class="icon-btn" data-close-settings aria-label="Close settings">✕</button>
+        </header>
+        <form id="settings-form" class="settings-form">
+          <section class="settings-section">
+            <h3>Updates</h3>
+            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.0</strong></p>
+            <p id="update-status" class="settings-help">Checking for updates…</p>
+            <div class="permissions-actions">
+              <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
+              <button type="button" id="install-update-btn" class="primary hidden">Download &amp; install update</button>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Apple Intelligence</h3>
+            <div class="ai-toggle-row">
+              <div>
+                <p class="ai-toggle-title">Use Apple Intelligence for summaries</p>
+                <p class="ai-toggle-sub">Requires Apple Silicon and a Summarize shortcut</p>
+              </div>
+              <label class="switch">
+                <input id="ai-toggle" type="checkbox" />
+                <span class="slider" aria-hidden="true"></span>
+                <span class="sr-only">Enable Apple Intelligence summaries</span>
+              </label>
+            </div>
+            <p id="ai-status" class="ai-status">Checking this Mac…</p>
+            <label class="settings-field">
+              <span>Shortcut name</span>
+              <input id="setting-ai-shortcut" type="text" maxlength="200" />
+            </label>
+          </section>
+
+          <section class="settings-section">
+            <h3>Startup &amp; conversation loading</h3>
+            <label class="settings-check">
+              <input id="setting-auto-load" type="checkbox" />
+              <span>Auto-load conversations when the app opens</span>
+            </label>
+            <div class="load-mode-toggle settings-mode-toggle" role="group" aria-label="Default load mode">
+              <button type="button" class="load-mode-btn" id="setting-mode-count" data-setting-load-mode="count">By count</button>
+              <button type="button" class="load-mode-btn" id="setting-mode-activity" data-setting-load-mode="activity">By activity</button>
+            </div>
+            <div id="setting-count-fields">
+              <label class="settings-field">
+                <span>Default conversations to load</span>
+                <input id="setting-thread-limit" type="number" min="5" max="100000" step="1" />
+              </label>
+            </div>
+            <div id="setting-activity-fields" class="hidden">
+              <div class="load-activity-row">
+                <label class="settings-field">
+                  <span>Active within the last</span>
+                  <input id="setting-activity-value" type="number" min="1" max="100" step="1" />
+                </label>
+                <label class="settings-field">
+                  <span>Unit</span>
+                  <select id="setting-activity-unit">
+                    <option value="months">Months</option>
+                    <option value="years">Years</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Messages</h3>
+            <label class="settings-field">
+              <span>Default recent messages to show</span>
+              <input id="setting-message-limit" type="number" min="1" max="500" step="1" />
+            </label>
+            <label class="settings-field">
+              <span>Default summary days</span>
+              <input id="setting-summary-days" type="number" min="1" max="3650" step="1" />
+            </label>
+          </section>
+
+          <section class="settings-section">
+            <h3>Categories</h3>
+            <p class="settings-help">Choose which categories you can assign and filter by. Add your own below.</p>
+            <div id="setting-enabled-categories" class="settings-checks"></div>
+            <div class="custom-cat-add">
+              <input id="setting-new-category" type="text" maxlength="60" placeholder="New category name" />
+              <button type="button" id="setting-add-category" class="settings-cancel">Add</button>
+            </div>
+            <div id="setting-custom-categories" class="custom-cat-list"></div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Hide from default list</h3>
+            <p class="settings-help">
+              These stay out of the All view after loading, but you can still open their filter chip to see and change them.
+            </p>
+            <div id="setting-hidden-categories" class="settings-checks"></div>
+          </section>
+
+          <div class="settings-actions">
+            <button type="button" class="settings-cancel" data-close-settings>Cancel</button>
+            <button type="submit" class="primary">Save settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="/static/app.js?v=20260717h"></script>
   </body>
 </html>

@@ -1,0 +1,44 @@
+#!/bin/bash
+# Runs after MessageManager.pkg installs the app into /Applications.
+set -euo pipefail
+
+APP="/Applications/MessageManager.app"
+LOG_DIR="${HOME}/Library/Application Support/MessageManager/logs"
+mkdir -p "${LOG_DIR}"
+LOG="${LOG_DIR}/install.log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG}" >/dev/null
+}
+
+log "postinstall starting"
+
+if [[ -d "${APP}" ]]; then
+  xattr -cr "${APP}" 2>/dev/null || true
+  log "Cleared quarantine on ${APP}"
+fi
+
+# Open Full Disk Access settings so the user can grant Messages/Contacts access.
+open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" >/dev/null 2>&1 \
+  || open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" >/dev/null 2>&1 \
+  || true
+
+osascript >/dev/null 2>&1 <<'EOF' || true
+display dialog "MessageManager was installed in Applications.
+
+Next step (required):
+1. In Privacy & Security → Full Disk Access, enable MessageManager
+2. If it is not listed, click +, choose Applications → MessageManager
+3. Quit MessageManager fully, then open it again
+
+Python 3.9+ from python.org is also required on first launch if not already installed." buttons {"Open MessageManager", "OK"} default button "Open MessageManager" with title "MessageManager Setup"
+set choice to button returned of result
+if choice is "Open MessageManager" then
+  try
+    open application "MessageManager"
+  end try
+end if
+EOF
+
+log "postinstall finished"
+exit 0

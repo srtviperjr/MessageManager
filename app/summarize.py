@@ -293,7 +293,7 @@ def summarize_thread(
 
     if not messages:
         return {
-            "summary": "No text messages available to summarize in this thread.",
+            "summary": "No text messages available to summarize in this conversation.",
             "highlights": [],
             "topics": [],
             "stats": {

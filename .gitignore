@@ -15,3 +15,5 @@ dist/
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
+.tools/
+.tools/

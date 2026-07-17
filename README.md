@@ -1,6 +1,6 @@
-# MessageManager
+# MessageManager 1.0
 
-Local web app that reads your macOS Messages database, lets you tag threads as **business** or **personal**, and generates an **extractive summary** on demand.
+Local macOS app that reads your Messages database, lets you tag conversations (business, personal, ignore, or custom categories), and generates summaries on demand.
 
 ## Requirements
 
@@ -31,13 +31,15 @@ Open [http://127.0.0.1:8741](http://127.0.0.1:8741).
 
 ## Features
 
-- Browse recent message threads from your local Messages DB (read-only copy)
+- Browse recent conversations from your local Messages DB (read-only copy)
 - Resolve phone numbers / emails to names from macOS Contacts
-- Filter by business / personal / uncategorized
+- Filter by business / personal / uncategorized / ignore / custom categories
 - Search by name, phone/email, or preview text
 - Persist categories in `data/categories.db` (local only)
-- Summarize a thread with a local extractive summarizer
-- Optional **Apple Intelligence** summaries on Apple Silicon (toggle in the sidebar)
+- Summarize a conversation with a local extractive summarizer
+- Optional **Apple Intelligence** summaries on Apple Silicon (Settings)
+- Built-in update checks against GitHub Releases
+- Automatic data migrations when upgrading versions
 
 ## Apple Intelligence summaries (Apple Silicon)
 
@@ -49,34 +51,52 @@ Summaries stay on-device via a Shortcuts bridge.
    - **Receive** Text input from nowhere (or Shortcut Input)
    - **Summarize** (Apple Intelligence / Writing Tools) on that text
    - **Stop and Output** the summary
-4. In the app sidebar, turn on **Apple Intelligence**
-5. Open a thread and click **Summarize**
+4. In **Settings**, turn on **Apple Intelligence**
+5. Open a conversation and click **Summarize**
 
 On Intel Macs the toggle can still be enabled for later use, but AI summaries will explain that Apple Silicon is required and extractive mode remains available when the toggle is off.
 
-Settings are stored in `data/settings.json`.
+Settings are stored under Application Support when using the packaged app (`~/Library/Application Support/MessageManager/`), or `data/` in development.
 
-## Install on another Mac (clickable app icon)
+## Install with the macOS package (recommended)
 
-### 1. Build the `.app` on this Mac
+### 1. Build the installer
 
 ```bash
 cd ~/Documents/imessage-categorizer
-chmod +x scripts/create-macos-app.sh scripts/macos/launch.sh
+chmod +x scripts/create-macos-app.sh scripts/create-macos-installer.sh scripts/macos/launch.sh scripts/macos/pkg/postinstall
+./scripts/create-macos-installer.sh
+```
+
+Creates:
+
+- `dist/MessageManager.app`
+- `dist/MessageManager-1.0.0.pkg` (and `dist/MessageManager.pkg`)
+
+### 2. Install on a Mac
+
+1. Double-click the `.pkg` (right-click → **Open** if Gatekeeper blocks it)
+2. Complete the installer (app goes to **Applications**)
+3. When prompted, grant **Full Disk Access** to **MessageManager**
+4. Launch MessageManager from Applications
+
+### 3. Updates
+
+In **Settings → Updates**, check GitHub for a newer release. If one exists, **Download & install update** fetches the release `.pkg` and opens it. After upgrading, reopen the app so migrations can apply.
+
+To publish a release:
+
+```bash
+gh release create v1.0.0 dist/MessageManager-1.0.0.pkg --title "MessageManager 1.0.0" --notes "Initial 1.0 release"
+```
+
+### Dev / direct `.app` copy
+
+```bash
 ./scripts/create-macos-app.sh
 ```
 
-That creates / refreshes:
-
-`dist/MessageManager.app`
-
-Rebuild this after app changes before copying it to another Mac.
-
-### 2. Copy it to the other Mac
-
-AirDrop, USB, or shared folder — copy **`MessageManager.app`** into that Mac’s **Applications** folder (or Desktop).
-
-The other Mac needs:
+Then copy `dist/MessageManager.app` to Applications. The other Mac needs:
 
 - macOS 13+
 - **Python 3.9+ from [python.org](https://www.python.org/downloads/macos/)** (recommended — the built-in `/usr/bin/python3` stub often cannot create a virtual environment)

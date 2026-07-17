@@ -1,20 +1,35 @@
+const BUILTIN_CATEGORY_KEYS = ["business", "personal", "uncategorized", "ignore"];
+
 const state = {
   category: "all",
   query: "",
   allThreads: [],
   threads: [],
-  counts: { business: 0, personal: 0, uncategorized: 0 },
+  counts: { business: 0, personal: 0, uncategorized: 0, ignore: 0 },
   selectedId: null,
   selected: null,
   messagesRequestId: 0,
+  messagesLimit: 10,
+  messagesHasMore: false,
   flyoutChatId: null,
   hasLoaded: false,
+  loadCardCollapsed: false,
   availableThreads: null,
+  loadMode: "count",
+  settingsDraftCustom: [],
   settings: {
     apple_intelligence_enabled: false,
     apple_intelligence_shortcut: "MessageManager Summarize",
     summary_days: 30,
     thread_limit: 50,
+    thread_load_mode: "count",
+    thread_activity_value: 6,
+    thread_activity_unit: "months",
+    auto_load_on_start: false,
+    default_message_limit: 10,
+    custom_categories: [],
+    enabled_categories: [...BUILTIN_CATEGORY_KEYS],
+    hidden_from_default: ["ignore"],
   },
   appleIntelligence: null,
   platform: null,
@@ -24,7 +39,7 @@ const state = {
 
 const els = {
   search: document.getElementById("search"),
-  filters: document.querySelectorAll(".filter"),
+  categorySummary: document.getElementById("category-summary"),
   threadList: document.getElementById("thread-list"),
   accessBanner: document.getElementById("access-banner"),
   emptyState: document.getElementById("empty-state"),
@@ -33,8 +48,8 @@ const els = {
   threadMeta: document.getElementById("thread-meta"),
   threadCategoryLabel: document.getElementById("thread-category-label"),
   categoryFlyout: document.getElementById("category-flyout"),
+  categorySegmented: document.getElementById("category-segmented"),
   threadLimitMaxLabel: document.getElementById("thread-limit-max-label"),
-  categoryButtons: document.querySelectorAll("[data-set-category]"),
   summarizeBtn: document.getElementById("summarize-btn"),
   summaryDays: document.getElementById("summary-days"),
   summaryPanel: document.getElementById("summary-panel"),
@@ -46,10 +61,7 @@ const els = {
   messagesPanel: document.getElementById("messages-panel"),
   messagesList: document.getElementById("messages-list"),
   messagesCount: document.getElementById("messages-count"),
-  countAll: document.getElementById("count-all"),
-  countBusiness: document.getElementById("count-business"),
-  countPersonal: document.getElementById("count-personal"),
-  countUncategorized: document.getElementById("count-uncategorized"),
+  messagesLoadFlyout: document.getElementById("messages-load-flyout"),
   aiToggle: document.getElementById("ai-toggle"),
   aiStatus: document.getElementById("ai-status"),
   statusBar: document.getElementById("status-bar"),
@@ -63,7 +75,45 @@ const els = {
   threadLimit: document.getElementById("thread-limit"),
   threadLimitValue: document.getElementById("thread-limit-value"),
   loadThreadsBtn: document.getElementById("load-threads-btn"),
+  loadCard: document.getElementById("load-card"),
+  loadCardToggle: document.getElementById("load-card-toggle"),
+  loadCountControls: document.getElementById("load-count-controls"),
+  loadActivityControls: document.getElementById("load-activity-controls"),
+  threadActivityValue: document.getElementById("thread-activity-value"),
+  threadActivityUnit: document.getElementById("thread-activity-unit"),
+  settingsBtn: document.getElementById("settings-btn"),
+  settingsModal: document.getElementById("settings-modal"),
+  settingsForm: document.getElementById("settings-form"),
+  settingAutoLoad: document.getElementById("setting-auto-load"),
+  settingThreadLimit: document.getElementById("setting-thread-limit"),
+  settingMessageLimit: document.getElementById("setting-message-limit"),
+  settingSummaryDays: document.getElementById("setting-summary-days"),
+  settingAiShortcut: document.getElementById("setting-ai-shortcut"),
+  settingActivityValue: document.getElementById("setting-activity-value"),
+  settingActivityUnit: document.getElementById("setting-activity-unit"),
+  settingCountFields: document.getElementById("setting-count-fields"),
+  settingActivityFields: document.getElementById("setting-activity-fields"),
+  settingEnabledCategories: document.getElementById("setting-enabled-categories"),
+  settingHiddenCategories: document.getElementById("setting-hidden-categories"),
+  settingCustomCategories: document.getElementById("setting-custom-categories"),
+  settingNewCategory: document.getElementById("setting-new-category"),
+  settingAddCategory: document.getElementById("setting-add-category"),
+  appVersionLabel: document.getElementById("app-version-label"),
+  settingsCurrentVersion: document.getElementById("settings-current-version"),
+  permissionsCard: document.getElementById("permissions-card"),
+  permissionsText: document.getElementById("permissions-text"),
+  openPrivacyBtn: document.getElementById("open-privacy-btn"),
+  recheckPermissionsBtn: document.getElementById("recheck-permissions-btn"),
+  updateBanner: document.getElementById("update-banner"),
+  updateBannerText: document.getElementById("update-banner-text"),
+  updateBannerBtn: document.getElementById("update-banner-btn"),
+  updateStatus: document.getElementById("update-status"),
+  checkUpdatesBtn: document.getElementById("check-updates-btn"),
+  installUpdateBtn: document.getElementById("install-update-btn"),
 };
+
+state.appVersion = "1.0.0";
+state.updateInfo = null;
 
 function formatWhen(iso) {
   if (!iso) return "";
@@ -80,7 +130,77 @@ function formatWhen(iso) {
 function categoryLabel(cat) {
   if (cat === "business") return "Business";
   if (cat === "personal") return "Personal";
-  return "Uncategorized";
+  if (cat === "ignore") return "Ignore";
+  if (cat === "uncategorized" || !cat) return "Uncategorized";
+  const custom = (state.settings.custom_categories || []).find((c) => c.id === cat);
+  if (custom?.label) return custom.label;
+  return String(cat)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function knownCategoryIds() {
+  const custom = (state.settings.custom_categories || []).map((c) => c.id);
+  return new Set([...BUILTIN_CATEGORY_KEYS, ...custom]);
+}
+
+function allCategoryDefs() {
+  const custom = state.settingsDraftCustom.length
+    ? state.settingsDraftCustom
+    : state.settings.custom_categories || [];
+  return [
+    ...BUILTIN_CATEGORY_KEYS.map((id) => ({
+      id,
+      label: categoryLabel(id),
+      builtin: true,
+    })),
+    ...custom.map((c) => ({ id: c.id, label: c.label, builtin: false })),
+  ];
+}
+
+function enabledCategories() {
+  const known = knownCategoryIds();
+  const list = state.settings.enabled_categories;
+  const picked = Array.isArray(list) ? list.filter((c) => known.has(c)) : [];
+  const out = picked.length ? picked : [...BUILTIN_CATEGORY_KEYS];
+  if (!out.includes("uncategorized")) out.unshift("uncategorized");
+  return out;
+}
+
+function activityToDays(value, unit) {
+  const n = Math.max(1, Math.min(100, Math.round(Number(value) || 1)));
+  return unit === "years" ? n * 365 : n * 30;
+}
+
+function syncLoadModeUI(mode = state.loadMode) {
+  state.loadMode = mode === "activity" ? "activity" : "count";
+  document.querySelectorAll("[data-load-mode]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.loadMode === state.loadMode);
+  });
+  els.loadCountControls?.classList.toggle("hidden", state.loadMode !== "count");
+  els.loadActivityControls?.classList.toggle("hidden", state.loadMode !== "activity");
+  syncThreadLimitLabel();
+}
+
+function syncSettingsLoadModeUI(mode) {
+  const m = mode === "activity" ? "activity" : "count";
+  document.querySelectorAll("[data-setting-load-mode]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.settingLoadMode === m);
+  });
+  els.settingCountFields?.classList.toggle("hidden", m !== "count");
+  els.settingActivityFields?.classList.toggle("hidden", m !== "activity");
+}
+
+function hiddenFromDefault() {
+  const enabled = new Set(enabledCategories());
+  const list = state.settings.hidden_from_default || [];
+  return (Array.isArray(list) ? list : []).filter((c) => enabled.has(c));
+}
+
+function defaultMessageLimit() {
+  const raw = Number(state.settings.default_message_limit);
+  if (!Number.isFinite(raw)) return 10;
+  return Math.max(1, Math.min(500, Math.round(raw)));
 }
 
 function currentSummaryDays() {
@@ -133,21 +253,31 @@ function setAvailableThreads(count) {
 }
 
 function syncThreadLimitLabel() {
+  if (state.loadMode === "activity") {
+    const value = Math.max(1, Number(els.threadActivityValue?.value) || 6);
+    const unit = els.threadActivityUnit?.value === "years" ? "y" : "mo";
+    if (els.threadLimitValue) els.threadLimitValue.textContent = `${value}${unit}`;
+    return;
+  }
   const value = currentThreadLimit();
   if (els.threadLimitValue) els.threadLimitValue.textContent = String(value);
   if (els.threadLimit) els.threadLimit.value = String(value);
 }
 
 function applyLocalFilters() {
-  const counts = { business: 0, personal: 0, uncategorized: 0 };
+  const counts = { business: 0, personal: 0, uncategorized: 0, ignore: 0 };
   for (const t of state.allThreads) {
-    counts[t.category] = (counts[t.category] || 0) + 1;
+    const cat = t.category || "uncategorized";
+    counts[cat] = (counts[cat] || 0) + 1;
   }
   state.counts = counts;
 
   let list = state.allThreads.slice();
+  const hidden = new Set(hiddenFromDefault());
   if (state.category && state.category !== "all") {
-    list = list.filter((t) => t.category === state.category);
+    list = list.filter((t) => (t.category || "uncategorized") === state.category);
+  } else if (hidden.size) {
+    list = list.filter((t) => !hidden.has(t.category || "uncategorized"));
   }
   if (state.query) {
     const needle = state.query.toLowerCase();
@@ -161,7 +291,7 @@ function applyLocalFilters() {
     );
   }
   state.threads = list;
-  renderCounts();
+  renderCategorySummary();
   renderThreadList();
 }
 
@@ -253,13 +383,74 @@ function readSse(url, { onProgress } = {}) {
   });
 }
 
-function renderCounts() {
+function renderCategorySummary() {
+  if (!els.categorySummary) return;
+  const enabled = enabledCategories();
   const { counts } = state;
-  const total = (counts.business || 0) + (counts.personal || 0) + (counts.uncategorized || 0);
-  els.countAll.textContent = String(total);
-  els.countBusiness.textContent = String(counts.business || 0);
-  els.countPersonal.textContent = String(counts.personal || 0);
-  els.countUncategorized.textContent = String(counts.uncategorized || 0);
+  const visibleTotal = enabled.reduce((sum, key) => sum + (counts[key] || 0), 0);
+  const chips = [
+    { key: "all", label: "All", count: visibleTotal },
+    ...enabled.map((key) => ({
+      key,
+      label: key === "uncategorized" ? "Unset" : categoryLabel(key),
+      count: counts[key] || 0,
+    })),
+  ];
+  els.categorySummary.innerHTML = chips
+    .map(
+      (chip) => `
+      <button class="filter ${state.category === chip.key ? "active" : ""}" data-category="${chip.key}">
+        ${escapeHtml(chip.label)} <span>${chip.count}</span>
+      </button>`
+    )
+    .join("");
+  els.categorySummary.querySelectorAll(".filter").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.category = btn.dataset.category || "all";
+      if (state.hasLoaded) applyLocalFilters();
+      else renderCategorySummary();
+    });
+  });
+}
+
+function renderCategoryControls() {
+  const enabled = enabledCategories();
+  if (els.categorySegmented) {
+    els.categorySegmented.innerHTML = enabled
+      .map(
+        (key) =>
+          `<button type="button" data-set-category="${key}">${escapeHtml(
+            key === "uncategorized" ? "Unset" : categoryLabel(key)
+          )}</button>`
+      )
+      .join("");
+    els.categorySegmented.querySelectorAll("[data-set-category]").forEach((btn) => {
+      btn.addEventListener("click", () => setCategory(btn.dataset.setCategory));
+    });
+  }
+  if (els.categoryFlyout) {
+    els.categoryFlyout.innerHTML = enabled
+      .map(
+        (key) =>
+          `<button type="button" data-flyout-category="${key}" role="menuitem">${escapeHtml(
+            key === "uncategorized" ? "Unset" : categoryLabel(key)
+          )}</button>`
+      )
+      .join("");
+    els.categoryFlyout.querySelectorAll("[data-flyout-category]").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const chatId = state.flyoutChatId || state.selectedId;
+        const category = btn.dataset.flyoutCategory;
+        hideCategoryFlyout();
+        if (!chatId || !category) return;
+        if (state.selectedId !== chatId) selectThread(chatId);
+        await setCategory(category);
+      });
+    });
+  }
+  if (state.selected) syncCategoryButtons(state.selected.category || "uncategorized");
 }
 
 function renderPlatformChip() {
@@ -328,11 +519,11 @@ function renderAiStatus() {
 function renderThreadList() {
   const { threads, selectedId, hasLoaded } = state;
   if (!hasLoaded) {
-    els.threadList.innerHTML = `<p class="loading">Choose how many threads to load, then press Start loading.</p>`;
+    els.threadList.innerHTML = `<p class="loading">Choose how many conversations to load, then press Start loading.</p>`;
     return;
   }
   if (!threads.length) {
-    els.threadList.innerHTML = `<p class="loading">No threads match this filter.</p>`;
+    els.threadList.innerHTML = `<p class="loading">No conversations match this filter.</p>`;
     return;
   }
 
@@ -345,7 +536,6 @@ function renderThreadList() {
         ? preview
         : `${count.toLocaleString()} messages`;
       const cat = t.category || "uncategorized";
-      const badgeClickable = cat === "uncategorized" ? "clickable" : "";
       return `
         <button class="thread-item ${active}" data-id="${t.id}" role="listitem">
           <div class="top">
@@ -354,10 +544,10 @@ function renderThreadList() {
           </div>
           <p class="preview">${escapeHtml(subtitle)}</p>
           <span
-            class="badge ${cat} ${badgeClickable}"
+            class="badge ${cat} clickable"
             data-category-badge="${t.id}"
             data-category="${cat}"
-            title="${cat === "uncategorized" ? "Click to set Business or Personal" : ""}"
+            title="Click to change category"
           >${categoryLabel(cat)}</span>
         </button>
       `;
@@ -372,20 +562,15 @@ function renderThreadList() {
       event.preventDefault();
       event.stopPropagation();
       const chatId = Number(badge.dataset.categoryBadge);
-      const cat = badge.dataset.category || "uncategorized";
       if (!Number.isFinite(chatId)) return;
       // selectThread re-renders the list and destroys this badge node, so
       // capture its screen position first, then re-find the new badge.
       const clickRect = badge.getBoundingClientRect();
       selectThread(chatId);
-      if (cat === "uncategorized") {
-        const nextBadge = els.threadList.querySelector(
-          `[data-category-badge="${chatId}"]`
-        );
-        openCategoryFlyout(nextBadge, chatId, clickRect);
-      } else {
-        hideCategoryFlyout();
-      }
+      const nextBadge = els.threadList.querySelector(
+        `[data-category-badge="${chatId}"]`
+      );
+      openCategoryFlyout(nextBadge, chatId, clickRect);
     });
   });
 }
@@ -445,17 +630,13 @@ function openCategoryFlyout(anchor, chatId, fallbackRect = null) {
 
 function syncCategoryButtons(category) {
   const cat = category || "uncategorized";
-  els.categoryButtons.forEach((btn) => {
+  els.categorySegmented?.querySelectorAll("[data-set-category]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.setCategory === cat);
   });
   if (!els.threadCategoryLabel) return;
   els.threadCategoryLabel.textContent = categoryLabel(cat);
-  const canQuickSet = cat === "uncategorized";
-  els.threadCategoryLabel.classList.toggle("clickable", canQuickSet);
-  els.threadCategoryLabel.title = canQuickSet
-    ? "Click to set Business or Personal"
-    : "";
-  if (!canQuickSet) hideCategoryFlyout();
+  els.threadCategoryLabel.classList.add("clickable");
+  els.threadCategoryLabel.title = "Click to change category";
 }
 
 async function refreshAvailableThreads() {
@@ -509,19 +690,34 @@ async function persistSummaryDays(days) {
 }
 
 async function loadThreads() {
-  const limit = currentThreadLimit();
+  const params = new URLSearchParams({ category: "all" });
+  let statusMsg = "";
+  if (state.loadMode === "activity") {
+    const value = Math.max(1, Math.min(100, Number(els.threadActivityValue?.value) || 6));
+    const unit = els.threadActivityUnit?.value === "years" ? "years" : "months";
+    if (els.threadActivityValue) els.threadActivityValue.value = String(value);
+    const days = activityToDays(value, unit);
+    params.set("activity_days", String(days));
+    params.set("limit", "100000");
+    persistSettingsPatch({
+      thread_load_mode: "activity",
+      thread_activity_value: value,
+      thread_activity_unit: unit,
+    });
+    statusMsg = `Loading conversations active in the last ${value} ${unit}…`;
+  } else {
+    const limit = currentThreadLimit();
+    syncThreadLimitLabel();
+    params.set("limit", String(limit));
+    persistSettingsPatch({ thread_load_mode: "count", thread_limit: limit });
+    statusMsg = `Loading ${limit} most recent conversations…`;
+  }
   syncThreadLimitLabel();
-  persistSettingsPatch({ thread_limit: limit });
-
-  const params = new URLSearchParams({
-    category: "all",
-    limit: String(limit),
-  });
 
   els.loadThreadsBtn.disabled = true;
   els.loadThreadsBtn.textContent = "Loading…";
-  els.threadList.innerHTML = `<p class="loading">Loading ${limit} most recent threads…</p>`;
-  setStatus(`Loading ${limit} most recent threads…`, 2, { busy: true });
+  els.threadList.innerHTML = `<p class="loading">${escapeHtml(statusMsg)}</p>`;
+  setStatus(statusMsg, 2, { busy: true });
 
   try {
     let data;
@@ -550,26 +746,27 @@ async function loadThreads() {
     if (data.available_threads != null) setAvailableThreads(data.available_threads);
     els.accessBanner.classList.add("hidden");
     applyLocalFilters();
+    setLoadCardCollapsed(true);
     if (state.selectedId) {
       const still = state.allThreads.find((t) => t.id === state.selectedId);
       if (still) {
         state.selected = still;
         showSelectedThread(still, { clearSummary: false });
-        loadRecentMessages(still.id);
+        loadRecentMessages(still.id, { limit: state.messagesLimit });
       }
     }
     const note = streamError ? " · recovered after stream error" : "";
-    clearStatus(`Ready · ${state.allThreads.length} threads loaded${note}`);
+    clearStatus(`Ready · ${state.allThreads.length} conversations loaded${note}`);
   } catch (err) {
     els.accessBanner.textContent = err.message;
     els.accessBanner.classList.remove("hidden");
-    els.threadList.innerHTML = `<p class="loading">Unable to load threads.<br><small>${escapeHtml(
+    els.threadList.innerHTML = `<p class="loading">Unable to load conversations.<br><small>${escapeHtml(
       err.message
     )}</small></p>`;
-    clearStatus(`Failed to load threads: ${err.message}`);
+    clearStatus(`Failed to load conversations: ${err.message}`);
   } finally {
     els.loadThreadsBtn.disabled = false;
-    els.loadThreadsBtn.textContent = state.hasLoaded ? "Reload threads" : "Start loading";
+    els.loadThreadsBtn.textContent = state.hasLoaded ? "Reload conversations" : "Start loading";
   }
 }
 
@@ -581,15 +778,53 @@ function clearSummaryPanel() {
   els.summaryHighlights.innerHTML = "";
 }
 
+function hideMessagesLoadFlyout() {
+  if (!els.messagesLoadFlyout) return;
+  els.messagesLoadFlyout.classList.add("hidden");
+  if (els.messagesCount) {
+    els.messagesCount.setAttribute("aria-expanded", "false");
+  }
+}
+
+function openMessagesLoadFlyout() {
+  if (!els.messagesLoadFlyout || !els.messagesCount) return;
+  if (!state.selectedId || !state.messagesHasMore) return;
+  const rect = els.messagesCount.getBoundingClientRect();
+  els.messagesLoadFlyout.classList.remove("hidden");
+  const width = els.messagesLoadFlyout.offsetWidth || 170;
+  let left = rect.right - width;
+  left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+  let top = rect.bottom + 6;
+  els.messagesLoadFlyout.style.left = `${left}px`;
+  els.messagesLoadFlyout.style.top = `${top}px`;
+  els.messagesCount.setAttribute("aria-expanded", "true");
+}
+
+function syncMessagesCountButton(count) {
+  if (!els.messagesCount) return;
+  const n = Number(count) || 0;
+  if (!n) {
+    els.messagesCount.textContent = "Latest 10";
+  } else if (state.messagesHasMore) {
+    els.messagesCount.textContent = `${n} recent ▾`;
+  } else {
+    els.messagesCount.textContent = n === 1 ? "1 message" : `${n} messages`;
+  }
+  els.messagesCount.disabled = !state.selectedId || !state.messagesHasMore;
+  els.messagesCount.title = state.messagesHasMore
+    ? "Click to load more messages"
+    : "All available messages are loaded";
+}
+
 function renderMessages(messages) {
   if (!els.messagesList) return;
   if (!messages.length) {
-    els.messagesCount.textContent = "Latest 10";
+    syncMessagesCountButton(0);
     els.messagesList.innerHTML =
-      '<p class="messages-empty">No text messages found in this thread.</p>';
+      '<p class="messages-empty">No text messages found in this conversation.</p>';
     return;
   }
-  els.messagesCount.textContent = `${messages.length} recent`;
+  syncMessagesCountButton(messages.length);
   els.messagesList.innerHTML = messages
     .map((m) => {
       const fromMe = !!m.is_from_me;
@@ -614,37 +849,60 @@ function renderMessages(messages) {
   els.messagesList.scrollTop = els.messagesList.scrollHeight;
 }
 
-async function loadRecentMessages(chatId) {
+async function loadRecentMessages(chatId, { limit = state.messagesLimit } = {}) {
   const requestId = ++state.messagesRequestId;
+  const requested = Math.max(1, Math.min(20_000, Math.round(Number(limit) || 10)));
+  state.messagesLimit = requested;
   if (els.messagesList) {
-    els.messagesCount.textContent = "Latest 10";
+    els.messagesCount.textContent = "Loading…";
     els.messagesList.innerHTML =
       '<p class="messages-empty">Loading recent messages…</p>';
   }
   try {
-    const data = await api(`/api/threads/${chatId}/messages?limit=10`);
+    const data = await api(
+      `/api/threads/${chatId}/messages?limit=${encodeURIComponent(String(requested))}`
+    );
     if (requestId !== state.messagesRequestId || state.selectedId !== chatId) {
       return;
     }
-    renderMessages(data.messages || []);
+    const messages = data.messages || [];
+    const knownTotal = Number(state.selected?.message_count) || 0;
+    if (knownTotal > 0) {
+      state.messagesHasMore = messages.length < knownTotal;
+    } else {
+      state.messagesHasMore = messages.length >= requested;
+    }
+    renderMessages(messages);
   } catch (err) {
     if (requestId !== state.messagesRequestId || state.selectedId !== chatId) {
       return;
     }
+    state.messagesHasMore = false;
+    syncMessagesCountButton(0);
     els.messagesList.innerHTML = `<p class="messages-empty">${escapeHtml(
       err.message || "Could not load messages"
     )}</p>`;
   }
 }
 
+function setLoadCardCollapsed(collapsed) {
+  state.loadCardCollapsed = !!collapsed;
+  if (!els.loadCard || !els.loadCardToggle) return;
+  els.loadCard.classList.toggle("collapsed", state.loadCardCollapsed);
+  els.loadCardToggle.setAttribute(
+    "aria-expanded",
+    state.loadCardCollapsed ? "false" : "true"
+  );
+}
+
 function showSelectedThread(thread, { clearSummary = true } = {}) {
   els.emptyState.classList.add("hidden");
   els.threadView.classList.remove("hidden");
   if (clearSummary) clearSummaryPanel();
-  els.threadTitle.textContent = thread.display_name || "Thread";
+  els.threadTitle.textContent = thread.display_name || "Conversation";
   const people = thread.participant_names || thread.participants || [];
   const parts = [
-    `${(thread.message_count || 0).toLocaleString()} messages in thread`,
+    `${(thread.message_count || 0).toLocaleString()} messages in conversation`,
     ...people.slice(0, 3),
   ];
   if (thread.last_message_at) {
@@ -662,10 +920,15 @@ function selectThread(id) {
   const switched = state.selectedId !== id;
   state.selectedId = id;
   state.selected = thread;
+  if (switched) {
+    state.messagesLimit = defaultMessageLimit();
+    state.messagesHasMore = true;
+    hideMessagesLoadFlyout();
+  }
   renderThreadList();
   showSelectedThread(thread, { clearSummary: switched });
-  loadRecentMessages(id);
-  clearStatus(`Selected ${thread.display_name || "thread"} · categorize or summarize`);
+  loadRecentMessages(id, { limit: state.messagesLimit });
+  clearStatus(`Selected ${thread.display_name || "conversation"} · categorize or summarize`);
 }
 
 async function setCategory(category) {
@@ -758,16 +1021,316 @@ async function summarizeSelected() {
   }
 }
 
-function bindEvents() {
-  els.filters.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      els.filters.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.category = btn.dataset.category;
-      if (state.hasLoaded) applyLocalFilters();
-    });
-  });
+function renderPermissions(permissions, messages, contacts) {
+  const needs = !!permissions?.needs_attention || messages?.readable === false;
+  if (!els.permissionsCard) return;
+  els.permissionsCard.classList.toggle("hidden", !needs);
+  if (!needs) return;
+  const parts = [];
+  if (!messages?.readable) {
+    parts.push("Messages database is not readable yet (Full Disk Access required).");
+  }
+  if (contacts && contacts.available === false) {
+    parts.push("Contacts lookup is limited until Full Disk Access is granted.");
+  }
+  if (permissions?.guidance) parts.push(permissions.guidance);
+  if (els.permissionsText) {
+    els.permissionsText.textContent = parts.join(" ");
+  }
+}
 
+function renderUpdateBanner(info) {
+  state.updateInfo = info;
+  const available = !!info?.update_available && !!info?.installer?.url;
+  if (els.updateBanner) els.updateBanner.classList.toggle("hidden", !available);
+  if (els.updateBannerText && available) {
+    els.updateBannerText.textContent = `Update ${info.latest_version} available`;
+  }
+  if (els.updateStatus) {
+    if (!info?.ok) {
+      els.updateStatus.textContent = info?.detail || "Could not check for updates.";
+    } else if (available) {
+      els.updateStatus.textContent = `Version ${info.latest_version} is available (you have ${info.current_version}).`;
+    } else {
+      els.updateStatus.textContent = `You're on the latest version (${info.current_version}).`;
+    }
+  }
+  if (els.installUpdateBtn) {
+    els.installUpdateBtn.classList.toggle("hidden", !available);
+  }
+}
+
+async function checkForUpdates({ quiet = false } = {}) {
+  if (!quiet && els.updateStatus) els.updateStatus.textContent = "Checking for updates…";
+  try {
+    const info = await api("/api/updates/check");
+    renderUpdateBanner(info);
+    if (!quiet && info.update_available) {
+      clearStatus(`Update ${info.latest_version} available`);
+    }
+    return info;
+  } catch (err) {
+    renderUpdateBanner({
+      ok: false,
+      update_available: false,
+      current_version: state.appVersion,
+      detail: err.message,
+    });
+    return null;
+  }
+}
+
+async function downloadAndInstallUpdate() {
+  const url = state.updateInfo?.installer?.url;
+  if (!url) return;
+  if (els.installUpdateBtn) {
+    els.installUpdateBtn.disabled = true;
+    els.installUpdateBtn.textContent = "Downloading…";
+  }
+  setStatus("Downloading update…", null, { busy: true });
+  try {
+    const result = await api("/api/updates/download", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    clearStatus(`Installer saved to ${result.path || "Downloads"} — complete the installer, then reopen MessageManager`);
+    if (els.updateStatus) {
+      els.updateStatus.textContent =
+        "Installer opened. Finish the package install, then quit and reopen MessageManager so migrations can run.";
+    }
+  } catch (err) {
+    clearStatus(err.message || "Update download failed");
+  } finally {
+    if (els.installUpdateBtn) {
+      els.installUpdateBtn.disabled = false;
+      els.installUpdateBtn.textContent = "Download & install update";
+    }
+  }
+}
+
+function openSettingsModal() {
+  if (!els.settingsModal) return;
+  fillSettingsForm();
+  if (els.settingsCurrentVersion) {
+    els.settingsCurrentVersion.textContent = state.appVersion;
+  }
+  checkForUpdates({ quiet: true });
+  els.settingsModal.classList.remove("hidden");
+}
+
+function closeSettingsModal() {
+  els.settingsModal?.classList.add("hidden");
+}
+
+function renderSettingsCategoryLists() {
+  const defs = allCategoryDefs();
+  const enabled = new Set(
+    (state.settings.enabled_categories || []).filter((id) =>
+      defs.some((d) => d.id === id)
+    )
+  );
+  if (!enabled.size) BUILTIN_CATEGORY_KEYS.forEach((id) => enabled.add(id));
+  enabled.add("uncategorized");
+  const hidden = new Set(state.settings.hidden_from_default || []);
+
+  if (els.settingEnabledCategories) {
+    els.settingEnabledCategories.innerHTML = defs
+      .map((def) => {
+        const locked = def.id === "uncategorized";
+        return `
+        <label class="settings-check">
+          <input type="checkbox" data-enabled-cat="${def.id}" ${
+            enabled.has(def.id) ? "checked" : ""
+          } ${locked ? "disabled" : ""} />
+          <span>${escapeHtml(def.label)}${locked ? " (always on)" : ""}</span>
+        </label>`;
+      })
+      .join("");
+  }
+  if (els.settingHiddenCategories) {
+    els.settingHiddenCategories.innerHTML = defs
+      .map(
+        (def) => `
+        <label class="settings-check">
+          <input type="checkbox" data-hidden-cat="${def.id}" ${
+            hidden.has(def.id) ? "checked" : ""
+          } />
+          <span>Hide ${escapeHtml(def.label)} from All</span>
+        </label>`
+      )
+      .join("");
+  }
+  if (els.settingCustomCategories) {
+    const custom = state.settingsDraftCustom;
+    els.settingCustomCategories.innerHTML = custom.length
+      ? custom
+          .map(
+            (c, idx) => `
+          <div class="custom-cat-row">
+            <span>${escapeHtml(c.label)}</span>
+            <button type="button" data-remove-custom="${idx}">Remove</button>
+          </div>`
+          )
+          .join("")
+      : `<p class="settings-help">No custom categories yet.</p>`;
+    els.settingCustomCategories.querySelectorAll("[data-remove-custom]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.removeCustom);
+        state.settingsDraftCustom = state.settingsDraftCustom.filter((_, i) => i !== idx);
+        renderSettingsCategoryLists();
+      });
+    });
+  }
+}
+
+function fillSettingsForm() {
+  const s = state.settings;
+  state.settingsDraftCustom = (s.custom_categories || []).map((c) => ({ ...c }));
+  if (els.settingAutoLoad) els.settingAutoLoad.checked = !!s.auto_load_on_start;
+  if (els.settingThreadLimit) {
+    els.settingThreadLimit.value = String(s.thread_limit || 50);
+  }
+  if (els.settingMessageLimit) {
+    els.settingMessageLimit.value = String(s.default_message_limit || 10);
+  }
+  if (els.settingSummaryDays) {
+    els.settingSummaryDays.value = String(s.summary_days || 30);
+  }
+  if (els.settingAiShortcut) {
+    els.settingAiShortcut.value = s.apple_intelligence_shortcut || "MessageManager Summarize";
+  }
+  if (els.settingActivityValue) {
+    els.settingActivityValue.value = String(s.thread_activity_value || 6);
+  }
+  if (els.settingActivityUnit) {
+    els.settingActivityUnit.value = s.thread_activity_unit === "years" ? "years" : "months";
+  }
+  if (els.aiToggle) {
+    els.aiToggle.checked = !!s.apple_intelligence_enabled;
+    els.aiToggle.disabled = !state.platform?.apple_silicon;
+  }
+  syncSettingsLoadModeUI(s.thread_load_mode || "count");
+  renderAiStatus();
+  renderSettingsCategoryLists();
+}
+
+function addDraftCustomCategory() {
+  const label = (els.settingNewCategory?.value || "").trim();
+  if (!label) return;
+  const id = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/^(\d)/, "c_$1")
+    .slice(0, 40);
+  if (!id) return;
+  if (BUILTIN_CATEGORY_KEYS.includes(id) || state.settingsDraftCustom.some((c) => c.id === id)) {
+    clearStatus("That category already exists");
+    return;
+  }
+  state.settingsDraftCustom.push({ id, label: label.slice(0, 60) });
+  if (els.settingNewCategory) els.settingNewCategory.value = "";
+  renderSettingsCategoryLists();
+  const enabledBox = els.settingEnabledCategories?.querySelector(
+    `[data-enabled-cat="${id}"]`
+  );
+  if (enabledBox) enabledBox.checked = true;
+}
+
+async function saveSettingsFromForm(event) {
+  event.preventDefault();
+  const defs = allCategoryDefs();
+  const enabled = defs
+    .map((d) => d.id)
+    .filter((key) => {
+      if (key === "uncategorized") return true;
+      const input = els.settingEnabledCategories?.querySelector(
+        `[data-enabled-cat="${key}"]`
+      );
+      return !!input?.checked;
+    });
+  const hidden = defs
+    .map((d) => d.id)
+    .filter((key) => {
+      const input = els.settingHiddenCategories?.querySelector(
+        `[data-hidden-cat="${key}"]`
+      );
+      return !!input?.checked && enabled.includes(key);
+    });
+  const threadLimit = Math.max(
+    5,
+    Math.min(100_000, Number(els.settingThreadLimit?.value) || 50)
+  );
+  const messageLimit = Math.max(
+    1,
+    Math.min(500, Number(els.settingMessageLimit?.value) || 10)
+  );
+  const summaryDays = Math.max(
+    1,
+    Math.min(3650, Number(els.settingSummaryDays?.value) || 30)
+  );
+  const loadMode = document
+    .querySelector("[data-setting-load-mode].active")
+    ?.dataset.settingLoadMode === "activity"
+    ? "activity"
+    : "count";
+  const activityValue = Math.max(
+    1,
+    Math.min(100, Number(els.settingActivityValue?.value) || 6)
+  );
+  const activityUnit =
+    els.settingActivityUnit?.value === "years" ? "years" : "months";
+  try {
+    const data = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        apple_intelligence_enabled: !!els.aiToggle?.checked,
+        apple_intelligence_shortcut:
+          els.settingAiShortcut?.value?.trim() || "MessageManager Summarize",
+        auto_load_on_start: !!els.settingAutoLoad?.checked,
+        thread_limit: threadLimit,
+        thread_load_mode: loadMode,
+        thread_activity_value: activityValue,
+        thread_activity_unit: activityUnit,
+        default_message_limit: messageLimit,
+        summary_days: summaryDays,
+        custom_categories: state.settingsDraftCustom,
+        enabled_categories: enabled,
+        hidden_from_default: hidden,
+      }),
+    });
+    state.settings = { ...state.settings, ...(data.settings || {}) };
+    state.appleIntelligence = data.apple_intelligence || state.appleIntelligence;
+    state.platform = data.platform || state.platform;
+    state.loadMode = state.settings.thread_load_mode || "count";
+    if (els.threadActivityValue) {
+      els.threadActivityValue.value = String(state.settings.thread_activity_value || 6);
+    }
+    if (els.threadActivityUnit) {
+      els.threadActivityUnit.value =
+        state.settings.thread_activity_unit === "years" ? "years" : "months";
+    }
+    els.threadLimit.value = String(
+      Math.min(state.settings.thread_limit || 50, maxThreadLimit())
+    );
+    els.summaryDays.value = String(state.settings.summary_days || 30);
+    syncLoadModeUI(state.loadMode);
+    syncThreadLimitLabel();
+    renderCategoryControls();
+    renderAiStatus();
+    if (state.category !== "all" && !enabledCategories().includes(state.category)) {
+      state.category = "all";
+    }
+    if (state.hasLoaded) applyLocalFilters();
+    else renderCategorySummary();
+    closeSettingsModal();
+    clearStatus("Settings saved");
+  } catch (err) {
+    clearStatus(err.message || "Could not save settings");
+  }
+}
+
+function bindEvents() {
   let searchTimer;
   els.search.addEventListener("input", () => {
     clearTimeout(searchTimer);
@@ -777,47 +1340,93 @@ function bindEvents() {
     }, 200);
   });
 
-  els.categoryButtons.forEach((btn) => {
-    btn.addEventListener("click", () => setCategory(btn.dataset.setCategory));
-  });
-
   els.threadCategoryLabel?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    const cat = state.selected?.category || "uncategorized";
-    if (cat !== "uncategorized" || !state.selectedId) return;
-    const open = !els.categoryFlyout?.classList.contains("hidden")
-      && state.flyoutChatId === state.selectedId;
-    if (open) {
-      hideCategoryFlyout();
-    } else {
-      openCategoryFlyout(els.threadCategoryLabel, state.selectedId);
-    }
+    if (!state.selectedId) return;
+    const open =
+      !els.categoryFlyout?.classList.contains("hidden") &&
+      state.flyoutChatId === state.selectedId;
+    if (open) hideCategoryFlyout();
+    else openCategoryFlyout(els.threadCategoryLabel, state.selectedId);
   });
 
-  els.categoryFlyout?.querySelectorAll("[data-flyout-category]").forEach((btn) => {
+  document.addEventListener("click", () => {
+    hideCategoryFlyout();
+    hideMessagesLoadFlyout();
+  });
+  window.addEventListener("resize", () => {
+    hideCategoryFlyout();
+    hideMessagesLoadFlyout();
+  });
+  els.threadList?.addEventListener(
+    "scroll",
+    () => {
+      hideCategoryFlyout();
+      hideMessagesLoadFlyout();
+    },
+    { passive: true }
+  );
+
+  els.loadCardToggle?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setLoadCardCollapsed(!state.loadCardCollapsed);
+  });
+
+  els.messagesCount?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!state.selectedId || !state.messagesHasMore) return;
+    const open = !els.messagesLoadFlyout?.classList.contains("hidden");
+    if (open) hideMessagesLoadFlyout();
+    else openMessagesLoadFlyout();
+  });
+
+  els.messagesLoadFlyout?.querySelectorAll("[data-load-messages]").forEach((btn) => {
     btn.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const chatId = state.flyoutChatId || state.selectedId;
-      const category = btn.dataset.flyoutCategory;
-      hideCategoryFlyout();
-      if (!chatId || !category) return;
-      if (state.selectedId !== chatId) {
-        selectThread(chatId);
+      hideMessagesLoadFlyout();
+      if (!state.selectedId) return;
+      const mode = btn.dataset.loadMessages;
+      if (mode === "all") {
+        const total = Number(state.selected?.message_count) || 20_000;
+        await loadRecentMessages(state.selectedId, {
+          limit: Math.min(20_000, Math.max(state.messagesLimit, total)),
+        });
+      } else {
+        await loadRecentMessages(state.selectedId, {
+          limit: state.messagesLimit + 100,
+        });
       }
-      await setCategory(category);
     });
   });
 
-  document.addEventListener("click", () => hideCategoryFlyout());
-  window.addEventListener("resize", () => hideCategoryFlyout());
-  els.threadList?.addEventListener("scroll", () => hideCategoryFlyout(), { passive: true });
-
   els.summarizeBtn.addEventListener("click", summarizeSelected);
 
-  els.aiToggle.addEventListener("change", () => {
-    setAppleIntelligenceEnabled(els.aiToggle.checked);
+  document.querySelectorAll("[data-load-mode]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      syncLoadModeUI(btn.dataset.loadMode);
+    });
+  });
+  document.querySelectorAll("[data-setting-load-mode]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      syncSettingsLoadModeUI(btn.dataset.settingLoadMode);
+    });
+  });
+  els.threadActivityValue?.addEventListener("input", () => syncThreadLimitLabel());
+  els.threadActivityUnit?.addEventListener("change", () => syncThreadLimitLabel());
+  els.settingAddCategory?.addEventListener("click", (event) => {
+    event.preventDefault();
+    addDraftCustomCategory();
+  });
+  els.settingNewCategory?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addDraftCustomCategory();
+    }
   });
 
   let daysTimer;
@@ -843,6 +1452,42 @@ function bindEvents() {
     persistSettingsPatch({ thread_limit: limit });
   });
   els.loadThreadsBtn.addEventListener("click", () => loadThreads());
+
+  els.settingsBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openSettingsModal();
+  });
+  els.settingsForm?.addEventListener("submit", saveSettingsFromForm);
+  els.settingsModal?.querySelectorAll("[data-close-settings]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeSettingsModal();
+    });
+  });
+  els.openPrivacyBtn?.addEventListener("click", async () => {
+    try {
+      await api("/api/permissions/open-settings", { method: "POST" });
+      clearStatus("Opened Privacy settings — enable Full Disk Access for MessageManager");
+    } catch (err) {
+      clearStatus(err.message || "Could not open Privacy settings");
+    }
+  });
+  els.recheckPermissionsBtn?.addEventListener("click", async () => {
+    try {
+      const health = await api("/api/health");
+      renderPermissions(health.permissions, health.messages, health.contacts);
+      if (health.permissions?.needs_attention) {
+        clearStatus("Still missing access — grant Full Disk Access, then recheck");
+      } else {
+        clearStatus("Permissions look good");
+      }
+    } catch (err) {
+      clearStatus(err.message || "Recheck failed");
+    }
+  });
+  els.checkUpdatesBtn?.addEventListener("click", () => checkForUpdates());
+  els.installUpdateBtn?.addEventListener("click", () => downloadAndInstallUpdate());
+  els.updateBannerBtn?.addEventListener("click", () => openSettingsModal());
 
   els.openLogsBtn.addEventListener("click", () => {
     const logs = state.logs || {};
@@ -872,21 +1517,42 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
-  setStatus("Ready — choose a thread count and press Start loading");
+  setStatus("Ready — choose a conversation count and press Start loading");
   try {
     const health = await api("/api/health");
-    state.settings = health.settings || state.settings;
+    state.settings = { ...state.settings, ...(health.settings || {}) };
+    state.appVersion = health.version || state.appVersion || "1.0.0";
+    if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
+    if (els.settingsCurrentVersion) {
+      els.settingsCurrentVersion.textContent = state.appVersion;
+    }
+    state.messagesLimit = defaultMessageLimit();
+    state.loadMode = state.settings.thread_load_mode || "count";
     state.appleIntelligence = health.apple_intelligence || null;
     state.platform = health.platform || null;
     state.logs = health.logs || null;
+    renderPermissions(health.permissions, health.messages, health.contacts);
+    if (health.migration?.upgraded) {
+      clearStatus(`Upgraded to ${state.appVersion} — data migrations applied`);
+    }
     els.summaryDays.value = String(state.settings.summary_days || 30);
+    if (els.threadActivityValue) {
+      els.threadActivityValue.value = String(state.settings.thread_activity_value || 6);
+    }
+    if (els.threadActivityUnit) {
+      els.threadActivityUnit.value =
+        state.settings.thread_activity_unit === "years" ? "years" : "months";
+    }
     if (health.messages?.available_threads != null) {
       setAvailableThreads(health.messages.available_threads);
     }
     await refreshAvailableThreads();
     const preferred = state.settings.thread_limit || 50;
     els.threadLimit.value = String(Math.min(preferred, maxThreadLimit()));
+    syncLoadModeUI(state.loadMode);
     syncThreadLimitLabel();
+    renderCategoryControls();
+    renderCategorySummary();
     renderPlatformChip();
     renderAiStatus();
     renderThreadList();
@@ -902,10 +1568,17 @@ async function init() {
         `Ready — ${state.availableThreads.toLocaleString()} conversations available · default load ${preferred}`
       );
     }
+    if (state.settings.auto_load_on_start) {
+      await loadThreads();
+    }
+    checkForUpdates({ quiet: true });
   } catch (err) {
-    els.aiStatus.textContent = err.message;
-    els.aiStatus.className = "ai-status warn";
+    if (els.aiStatus) {
+      els.aiStatus.textContent = err.message;
+      els.aiStatus.className = "ai-status warn";
+    }
     clearStatus("Could not reach server");
+    renderCategorySummary();
     renderThreadList();
   }
 }

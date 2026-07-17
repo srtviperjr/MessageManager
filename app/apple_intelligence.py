@@ -130,7 +130,9 @@ def summarize_with_apple_intelligence(
 
     prompt = format_thread_for_summary(thread, max_messages=max_messages)
     if len(prompt.strip().splitlines()) <= 4:
-        raise AppleIntelligenceError("No text messages available to summarize in this thread.")
+        raise AppleIntelligenceError(
+            "No text messages available to summarize in this conversation."
+        )
 
     shortcut = status["shortcut_name"]
     with tempfile.TemporaryDirectory(prefix="messagemanager-ai-") as tmp:
@@ -158,7 +160,7 @@ def summarize_with_apple_intelligence(
             )
         except subprocess.TimeoutExpired as exc:
             raise AppleIntelligenceError(
-                "Apple Intelligence summary timed out. Try a shorter thread window."
+                "Apple Intelligence summary timed out. Try a shorter conversation window."
             ) from exc
         except OSError as exc:
             raise AppleIntelligenceError(f"Could not run Shortcuts: {exc}") from exc
