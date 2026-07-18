@@ -22,12 +22,22 @@ die() {
   log "ERROR: ${msg}"
   local escaped
   escaped="$(printf '%s' "${msg}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  osascript -e "display dialog \"${escaped}\" with title \"MessageManager\" buttons {\"OK\"} default button \"OK\" with icon stop" >/dev/null 2>&1 || true
+  # Non-blocking: a modal dialog here made Dock launches look like "nothing happened".
+  osascript -e "display notification \"${escaped}\" with title \"MessageManager\" subtitle \"Launch failed\"" >/dev/null 2>&1 || true
   exit 1
 }
 
 # Resolve bundled app root: .../MessageManager.app/Contents/Resources/app
-ROOT="$(cd "$(dirname "$0")/../Resources/app" && pwd)"
+# Native launcher runs this file from Resources/app/scripts/macos/launch.sh.
+# Legacy layout ran it from Contents/MacOS/MessageManager.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/../../run.py" ]]; then
+  ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+elif [[ -d "${SCRIPT_DIR}/../Resources/app" ]]; then
+  ROOT="$(cd "${SCRIPT_DIR}/../Resources/app" && pwd)"
+else
+  die "Cannot locate MessageManager app resources from ${SCRIPT_DIR}"
+fi
 VENV="${APP_SUPPORT}/venv"
 PORT=8741
 URL="http://127.0.0.1:${PORT}"
@@ -119,8 +129,11 @@ then open MessageManager again."
     else
       PYTHON_BIN="${VENV}/bin/python"
       log "Using existing venv"
-      # Ensure deps still present after upgrades.
-      "${PYTHON_BIN}" -m pip install -r "${ROOT}/requirements.txt" >>"${LOG_FILE}" 2>&1 || true
+      # Only install deps if imports are missing (avoids multi-second pip on every click).
+      if ! "${PYTHON_BIN}" -c 'import fastapi, uvicorn, pydantic, certifi' >/dev/null 2>&1; then
+        log "Installing missing Python packages…"
+        "${PYTHON_BIN}" -m pip install -r "${ROOT}/requirements.txt" >>"${LOG_FILE}" 2>&1 || true
+      fi
       return
     fi
   else
@@ -198,19 +211,22 @@ stop_server() {
     if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
       log "Stopping server pid ${pid}"
       kill "${pid}" 2>/dev/null || true
-      sleep 0.4
+      sleep 0.3
       kill -9 "${pid}" 2>/dev/null || true
     fi
     rm -f "${PID_FILE}"
   fi
   # Also stop any leftover listener on our port (stale upgrade).
-  local pids
-  pids="$(lsof -nP -t -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"
+  # Keep this bounded — unbounded lsof has hung Dock launches before.
+  local pids=""
+  if command -v lsof >/dev/null 2>&1; then
+    pids="$(perl -e 'alarm 2; exec @ARGV' lsof -nP -t -iTCP:"${PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+  fi
   if [[ -n "${pids}" ]]; then
     log "Stopping leftover listeners on ${PORT}: ${pids}"
     # shellcheck disable=SC2086
     kill ${pids} 2>/dev/null || true
-    sleep 0.3
+    sleep 0.2
     # shellcheck disable=SC2086
     kill -9 ${pids} 2>/dev/null || true
   fi
@@ -220,8 +236,12 @@ can_read_messages_db() {
   local py="$1"
   [[ -x "${py}" ]] || return 1
   # Prefer the cache created by the native app launcher (FDA applies there).
-  local cache="${THREAD_LEDGER_MESSAGES_CACHE:-${APP_SUPPORT}/messages-cache/chat.db}"
-  if [[ -f "${cache}" ]]; then
+  # THREAD_LEDGER_MESSAGES_CACHE may be a directory or a chat.db file path.
+  local cache_root="${THREAD_LEDGER_MESSAGES_CACHE:-${APP_SUPPORT}/messages-cache}"
+  if [[ -f "${cache_root}" ]]; then
+    return 0
+  fi
+  if [[ -f "${cache_root}/chat.db" ]]; then
     return 0
   fi
   "${py}" - <<'PY' >/dev/null 2>&1
@@ -242,7 +262,9 @@ PY
 start_server() {
   # Always restart so upgrades / FDA / Python switches take effect immediately.
   # Reusing a stale CLT Python server was leaving chat.db unreadable after install.
+  log "Preparing server…"
   stop_server
+  rm -f "${PID_FILE}"
 
   if [[ -x "${VENV}/bin/python" ]] && python_usable "${VENV}/bin/python"; then
     PYTHON_BIN="${VENV}/bin/python"
@@ -315,10 +337,14 @@ wait_until_server_stops() {
 
 setup_runtime
 start_server
-open "${URL}"
+# Bring the UI forward; retry once if the first open is ignored.
+open "${URL}" || true
+sleep 0.35
+open "${URL}" || true
+osascript -e "display notification \"MessageManager is ready\" with title \"MessageManager\"" >/dev/null 2>&1 || true
 
 # AppleScript display dialogs often fail or auto-dismiss from a shell .app.
-# Use a Tk window instead; fall back to waiting on the server process.
+# Prefer headless keep-alive; users can Quit from the browser footer.
 if run_keepalive; then
   stop_server
   log "Quit via keep-alive window"

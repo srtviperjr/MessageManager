@@ -202,15 +202,16 @@ def health() -> dict:
     runtime = runtime_status()
     fda_target = runtime.get("fda_target")
     messages_ok = bool(messages.get("readable"))
+    contacts_ok = bool(contacts.get("available"))
     if not messages_ok:
         guidance = (
             "Enable Full Disk Access for MessageManager, then quit and reopen the app. "
             "The app refreshes a local Messages cache on launch using that permission."
         )
-        if fda_target:
-            guidance += f" If it still fails, also enable: {fda_target}"
     else:
+        # Access already works (live DB or launcher cache) — do not keep prompting.
         guidance = None
+        fda_target = None
     return {
         "ok": True,
         "version": APP_VERSION,
@@ -224,9 +225,11 @@ def health() -> dict:
         "permissions": {
             "full_disk_access": messages_ok,
             "messages_readable": messages_ok,
-            "contacts_readable": bool(contacts.get("available")),
-            "needs_attention": (not messages_ok) or (not contacts.get("available")),
-            "fda_target": fda_target,
+            "contacts_readable": contacts_ok,
+            # Only block on Messages access. Contacts are optional and should not
+            # keep showing the Full Disk Access prompt after Messages already works.
+            "needs_attention": not messages_ok,
+            "fda_target": fda_target if not messages_ok else None,
             "guidance": guidance,
         },
         "apple_intelligence": capability_status(),

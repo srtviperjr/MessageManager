@@ -119,7 +119,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.6";
+state.appVersion = "1.0.7";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -1031,22 +1031,18 @@ async function summarizeSelected() {
 }
 
 function renderPermissions(permissions, messages, contacts) {
-  const needs = !!permissions?.needs_attention || messages?.readable === false;
+  // Only prompt when Messages are unreadable. Never nag once access already works.
+  const show = messages?.readable === false || permissions?.needs_attention === true;
   if (!els.permissionsCard) return;
-  els.permissionsCard.classList.toggle("hidden", !needs);
-  if (!needs) return;
-  const parts = [];
-  if (!messages?.readable) {
-    parts.push(
-      "Messages database is not readable yet. Enable Full Disk Access for MessageManager AND Python, then quit and reopen."
-    );
+  if (messages?.readable === true) {
+    els.permissionsCard.classList.add("hidden");
+    return;
   }
-  if (contacts && contacts.available === false) {
-    parts.push("Contacts lookup is limited until Full Disk Access is granted.");
-  }
-  if (permissions?.fda_target) {
-    parts.push(`Python to add: ${permissions.fda_target}`);
-  }
+  els.permissionsCard.classList.toggle("hidden", !show);
+  if (!show) return;
+  const parts = [
+    "Messages database is not readable yet. Enable Full Disk Access for MessageManager, then quit and reopen.",
+  ];
   if (permissions?.guidance) parts.push(permissions.guidance);
   if (els.permissionsText) {
     els.permissionsText.textContent = parts.join(" ");
@@ -1672,7 +1668,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.6";
+    state.appVersion = health.version || state.appVersion || "1.0.7";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

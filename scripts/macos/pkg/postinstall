@@ -214,11 +214,6 @@ if [[ -n "${PYTHON_BIN}" ]]; then
   fi
 fi
 
-# Open Full Disk Access settings so the user can grant Messages/Contacts access.
-open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" >/dev/null 2>&1 \
-  || open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" >/dev/null 2>&1 \
-  || true
-
 # Reveal the app in Finder so it is obvious where it landed.
 open -R "${APP}" >/dev/null 2>&1 || open /Applications >/dev/null 2>&1 || true
 
@@ -227,10 +222,22 @@ if [[ "${DEPS_OK}" -ne 1 ]]; then
   DEPS_NOTE="If launch fails, ensure Python 3.9+ is installed (python.org), then reopen MessageManager."
 fi
 
-osascript >/dev/null 2>&1 <<EOF || true
+# Only push Full Disk Access settings on first install (no cache yet). Upgrades
+# should not keep reopening Privacy settings when access was already granted.
+CACHE_DB="${CONSOLE_HOME}/Library/Application Support/MessageManager/messages-cache/chat.db"
+FIRST_INSTALL=0
+if [[ ! -f "${CACHE_DB}" ]]; then
+  FIRST_INSTALL=1
+  open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" >/dev/null 2>&1 \
+    || open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" >/dev/null 2>&1 \
+    || true
+fi
+
+if [[ "${FIRST_INSTALL}" -eq 1 ]]; then
+  osascript >/dev/null 2>&1 <<EOF || true
 display dialog "MessageManager was installed in Applications.
 
-Next step (required):
+Next step (required once):
 1. In Privacy & Security → Full Disk Access, enable MessageManager
 2. If it is not listed, click +, choose Applications → MessageManager
 3. Quit MessageManager fully, then open it again
@@ -243,6 +250,21 @@ if choice is "Open MessageManager" then
   end try
 end if
 EOF
+else
+  osascript >/dev/null 2>&1 <<EOF || true
+display dialog "MessageManager was updated in Applications.
+
+${DEPS_NOTE}
+
+If Messages already load, you do not need to change Full Disk Access again." buttons {"Open MessageManager", "OK"} default button "Open MessageManager" with title "MessageManager Updated"
+set choice to button returned of result
+if choice is "Open MessageManager" then
+  try
+    do shell script "open -a '${APP}'"
+  end try
+end if
+EOF
+fi
 
 log "postinstall finished"
 exit 0

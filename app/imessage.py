@@ -510,30 +510,41 @@ def get_thread_messages(
 
 
 def access_status() -> dict[str, Any]:
-    exists = CHAT_DB.exists()
+    cache_dir = _messages_cache_dir()
+    using_cache = bool(cache_dir and (cache_dir / "chat.db").is_file())
+    live_exists = False
+    try:
+        live_exists = CHAT_DB.exists()
+    except OSError:
+        live_exists = False
+
     readable = False
     error: Optional[str] = None
     available_threads: Optional[int] = None
-    if exists:
-        try:
-            conn, db_path = connect_messages()
-            conn.execute("SELECT 1 FROM chat LIMIT 1")
-            available_threads = int(
-                conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()["n"] or 0
-            )
-            conn.close()
-            cleanup_temp_db(db_path)
-            readable = True
-        except MessagesAccessError as exc:
-            error = str(exc)
-        except Exception as exc:  # noqa: BLE001
-            error = str(exc)
-    else:
-        error = f"Database not found at {CHAT_DB}"
+    # Prefer the launcher cache (and live DB). Do not bail just because the live
+    # path is hidden/unreadable without Full Disk Access.
+    try:
+        conn, db_path = connect_messages()
+        conn.execute("SELECT 1 FROM chat LIMIT 1")
+        available_threads = int(
+            conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()["n"] or 0
+        )
+        conn.close()
+        cleanup_temp_db(db_path)
+        readable = True
+    except MessagesAccessError as exc:
+        error = str(exc)
+    except Exception as exc:  # noqa: BLE001
+        error = str(exc)
+
+    if not live_exists and not using_cache and not readable:
+        error = error or f"Database not found at {CHAT_DB}"
+
     return {
         "path": str(CHAT_DB),
-        "exists": exists,
+        "exists": live_exists or using_cache,
         "readable": readable,
+        "using_cache": using_cache,
         "error": error,
         "uid": os.getuid(),
         "available_threads": available_threads,
