@@ -39,11 +39,15 @@ def check_for_update(timeout: float = 6.0) -> dict[str, Any]:
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return {
-                "ok": True,
+                "ok": False,
                 "update_available": False,
                 "current_version": APP_VERSION,
                 "latest_version": None,
-                "detail": "No GitHub releases published yet.",
+                "detail": (
+                    "GitHub returned 404 for releases/latest. "
+                    "If the repository is private, make it public (or publish a public release) "
+                    "so MessageManager can check for updates without authentication."
+                ),
             }
         return {
             "ok": False,

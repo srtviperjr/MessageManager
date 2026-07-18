@@ -164,22 +164,66 @@ Details: ${LOG_FILE}"
 If this keeps failing, install Python from https://www.python.org/downloads/macos/"
 }
 
+bundled_version() {
+  local ver_file="${ROOT}/../VERSION"
+  if [[ -f "${ver_file}" ]]; then
+    tr -d '[:space:]' <"${ver_file}"
+    return
+  fi
+  if [[ -f "${ROOT}/VERSION" ]]; then
+    tr -d '[:space:]' <"${ROOT}/VERSION"
+    return
+  fi
+  echo ""
+}
+
+running_version() {
+  curl -sf "${URL}/api/version" 2>/dev/null \
+    | python3 -c 'import sys,json; print(json.load(sys.stdin).get("version") or "")' 2>/dev/null \
+    || true
+}
+
 server_up() {
   curl -sf "${URL}/api/health" >/dev/null 2>&1
 }
 
-start_server() {
-  if server_up; then
-    log "Server already running"
-    return
-  fi
+stop_server() {
   if [[ -f "${PID_FILE}" ]]; then
-    old_pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
-    if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" 2>/dev/null; then
-      kill "${old_pid}" 2>/dev/null || true
-      sleep 0.3
+    pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+      log "Stopping server pid ${pid}"
+      kill "${pid}" 2>/dev/null || true
+      sleep 0.4
+      kill -9 "${pid}" 2>/dev/null || true
     fi
     rm -f "${PID_FILE}"
+  fi
+  # Also stop any leftover listener on our port (stale upgrade).
+  local pids
+  pids="$(lsof -nP -t -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"
+  if [[ -n "${pids}" ]]; then
+    log "Stopping leftover listeners on ${PORT}: ${pids}"
+    # shellcheck disable=SC2086
+    kill ${pids} 2>/dev/null || true
+    sleep 0.3
+    # shellcheck disable=SC2086
+    kill -9 ${pids} 2>/dev/null || true
+  fi
+}
+
+start_server() {
+  local want have
+  want="$(bundled_version)"
+  if server_up; then
+    have="$(running_version)"
+    if [[ -n "${want}" && -n "${have}" && "${want}" == "${have}" ]]; then
+      log "Server already running (v${have})"
+      return
+    fi
+    log "Restarting server (running v${have:-unknown}, app bundle v${want:-unknown})"
+    stop_server
+  else
+    stop_server
   fi
 
   log "Starting server on ${PORT} with ${PYTHON_BIN}"
@@ -197,25 +241,12 @@ start_server() {
 
   for _ in $(seq 1 40); do
     if server_up; then
-      log "Server ready (pid $(cat "${PID_FILE}" 2>/dev/null || echo '?'))"
+      log "Server ready v$(running_version) (pid $(cat "${PID_FILE}" 2>/dev/null || echo '?'))"
       return
     fi
     sleep 0.25
   done
   die "Server failed to start. See ${SERVER_LOG} and ${LOG_FILE}."
-}
-
-stop_server() {
-  if [[ -f "${PID_FILE}" ]]; then
-    pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
-    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-      log "Stopping server pid ${pid}"
-      kill "${pid}" 2>/dev/null || true
-      sleep 0.4
-      kill -9 "${pid}" 2>/dev/null || true
-    fi
-    rm -f "${PID_FILE}"
-  fi
 }
 
 run_keepalive() {
