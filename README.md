@@ -2,7 +2,7 @@
 
 Local macOS app for browsing, categorizing, and summarizing your iMessage conversations — entirely on your machine.
 
-**Current release:** [v1.0.9](https://github.com/srtviperjr/MessageManager/releases/tag/v1.0.9)
+**Current release:** [v1.0.10](https://github.com/srtviperjr/MessageManager/releases/tag/v1.0.10)
 
 ![App icon](docs/screenshots/app-icon.png)
 
@@ -96,8 +96,8 @@ chmod +x scripts/create-macos-app.sh scripts/create-macos-installer.sh scripts/m
 Publish:
 
 ```bash
-gh release create v1.0.9 dist/MessageManager.pkg \
-  --title "MessageManager 1.0.9" \
+gh release create v1.0.10 dist/MessageManager.pkg \
+  --title "MessageManager 1.0.10" \
   --notes "Release notes here"
 ```
 
@@ -124,6 +124,21 @@ MessageManager.app (native launcher)
 | `…/messages-cache/` | Copied `chat.db` |
 | `…/contacts-cache/` | Copied AddressBook DBs |
 | `…/logs/` | `launch.log`, `server.log`, `app.log` |
+
+## Category data & upgrades
+
+Conversation categories are the most important user data. They are stored **outside** the app bundle:
+
+`~/Library/Application Support/MessageManager/data/categories.db`
+
+Upgrades replace only `/Applications/MessageManager.app`. On launch, MessageManager:
+
+1. Snapshots `categories.db` into `data/backups/` before schema migrations  
+2. Applies versioned transforms that **copy/translate** rows (never wipe)  
+3. Verifies the category row count did not drop; restores from backup if it did  
+4. Rebinds categories by `chat_guid` if Messages reassigns a conversation’s numeric id  
+
+Installer scripts must never delete `data/` or `categories.db`. See [REQUIREMENTS.md](REQUIREMENTS.md) (F-G7).
 
 ## Privacy
 

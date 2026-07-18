@@ -1,0 +1,19 @@
+# Category data durability (critical)
+
+Conversation categories in `categories.db` are the most important user data.
+
+## Never
+
+- Delete, truncate, or replace `~/Library/Application Support/MessageManager/data/categories.db` during install, launch, venv rebuild, or upgrade
+- `rm -rf` the Application Support `data/` tree
+- Drop category rows in migrations except converting explicit `uncategorized` placeholders (absence = uncategorized)
+- Ship a migration that creates an empty categories DB over an existing one
+
+## Always
+
+- Keep categories outside the `.app` bundle (Application Support / `THREAD_LEDGER_DATA`)
+- Snapshot `categories.db` to `data/backups/` before schema transforms
+- Verify row counts after migrations; restore from backup if the count drops
+- Transform/copy rows when the schema changes; prefer additive migrations
+- Store and resolve `chat_guid` so categories survive Messages `chat_id` reassignment
+- Add/extend tests in `tests/test_category_upgrade.py` when changing category schema or migrations

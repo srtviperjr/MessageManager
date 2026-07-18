@@ -23,7 +23,17 @@ fi
 
 APP_SUPPORT="${CONSOLE_HOME}/Library/Application Support/MessageManager"
 LOG_DIR="${APP_SUPPORT}/logs"
-mkdir -p "${LOG_DIR}" "${APP_SUPPORT}/data" 2>/dev/null || true
+DATA_DIR="${APP_SUPPORT}/data"
+CATEGORIES_DB="${DATA_DIR}/categories.db"
+mkdir -p "${LOG_DIR}" "${DATA_DIR}" "${DATA_DIR}/backups" 2>/dev/null || true
+# CRITICAL: never delete or overwrite ${DATA_DIR}/categories.db or ${DATA_DIR}/backups.
+# Conversation categories are the user's most important MessageManager data and must
+# survive every pkg upgrade. This script only creates directories / fixes ownership.
+if [[ -f "${CATEGORIES_DB}" ]]; then
+  # Snapshot before an upgrade install so a bad future change can be rolled back.
+  stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+  cp -p "${CATEGORIES_DB}" "${DATA_DIR}/backups/categories-${stamp}-pre-pkg-install.db" 2>/dev/null || true
+fi
 # Ensure the console user owns Application Support data created by root.
 if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
   chown -R "${CONSOLE_USER}:staff" "${APP_SUPPORT}" 2>/dev/null || true

@@ -1,6 +1,6 @@
 # MessageManager — Requirements
 
-Version covered: **1.0.8**
+Version covered: **1.0.10**
 
 This document describes product requirements for MessageManager as implemented today, plus constraints for future work.
 
@@ -55,6 +55,13 @@ It is **not** a messaging client: it does not send, edit, delete, or sync messag
 | F-G4 | Change category from conversation header / flyout even when already set | Done |
 | F-G5 | User-defined custom categories | Done |
 | F-G6 | Enable/disable categories; hide selected categories from the default All view | Done |
+| F-G7 | **Category durability (critical):** assignments must survive every app upgrade | Done (1.0.10) |
+| F-G7a | Store categories outside the `.app` bundle (`Application Support/.../data/categories.db`) | Done |
+| F-G7b | Installer/postinstall must never delete or overwrite `categories.db` / `data/backups` | Done |
+| F-G7c | Before schema migrations, snapshot `categories.db` under `data/backups/` | Done |
+| F-G7d | After each migration, verify row count did not drop; restore from backup on loss | Done |
+| F-G7e | Schema transforms must copy/transform rows — never wipe the table | Done |
+| F-G7f | Resolve categories by `chat_guid` when Messages reassigns `chat_id` | Done |
 
 ### 3.4 Summaries
 

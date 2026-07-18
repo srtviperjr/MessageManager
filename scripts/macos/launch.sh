@@ -4,7 +4,8 @@ set -euo pipefail
 APP_SUPPORT="${HOME}/Library/Application Support/MessageManager"
 LOG_DIR="${APP_SUPPORT}/logs"
 MESSAGES_CACHE="${APP_SUPPORT}/messages-cache"
-mkdir -p "${LOG_DIR}" "${APP_SUPPORT}/data" "${MESSAGES_CACHE}"
+# data/ holds categories.db — never rm -rf this tree during upgrades or venv rebuilds.
+mkdir -p "${LOG_DIR}" "${APP_SUPPORT}/data" "${APP_SUPPORT}/data/backups" "${MESSAGES_CACHE}"
 LOG_FILE="${LOG_DIR}/launch.log"
 SERVER_LOG="${LOG_DIR}/server.log"
 export THREAD_LEDGER_DATA="${APP_SUPPORT}/data"

@@ -103,9 +103,12 @@ def _enrich_threads(
     category: Optional[str],
     q: Optional[str],
 ) -> dict[str, Any]:
-    cats = categories_store.get_all()
+    # Resolve by chat_id, then by chat_guid (heals id changes across Messages rebuilds).
     for thread in threads:
-        info = cats.get(thread["id"])
+        info = categories_store.resolve_for_thread(
+            int(thread["id"]),
+            chat_guid=thread.get("guid") or thread.get("chat_guid"),
+        )
         thread["category"] = info["category"] if info else "uncategorized"
         thread["notes"] = info.get("notes") if info else None
 
@@ -234,6 +237,7 @@ def health() -> dict:
         },
         "apple_intelligence": capability_status(),
         "settings": settings_store.get_settings(),
+        "categories": categories_store.status(),
         "logs": {
             "app_log": str(log_file_path()),
             "log_dir": str(log_dir()),

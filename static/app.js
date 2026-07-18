@@ -119,7 +119,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.9";
+state.appVersion = "1.0.10";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -1668,7 +1668,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.9";
+    state.appVersion = health.version || state.appVersion || "1.0.10";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
