@@ -12,7 +12,7 @@
     />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
-    <link rel="stylesheet" href="/static/styles.css?v=20260718g" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260718h" />
   </head>
   <body>
     <div class="app">
@@ -20,7 +20,7 @@
         <header class="brand">
           <div class="brand-row">
             <div>
-              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.26</span></span></h1>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.27</span></span></h1>
             </div>
             <button
               type="button"
@@ -101,7 +101,7 @@
         <div id="permissions-card" class="permissions-card hidden">
           <p class="permissions-title">Permissions needed</p>
           <p id="permissions-text" class="permissions-text">
-            Enable Full Disk Access for Python.app and MessageManager, then Sync cache (Settings → Cache → Prepare FDA).
+            Enable Full Disk Access for Python.app (Settings → Troubleshoot → Prepare FDA), then Sync cache.
           </p>
           <div class="access-checklist-scroll">
             <ul id="access-checklist" class="access-checklist" aria-label="Access checklist"></ul>
@@ -261,7 +261,7 @@
           <div id="settings-tab-user" class="settings-tab-panel" data-settings-panel="user" role="tabpanel">
             <section class="settings-section">
               <h3>Updates</h3>
-              <p class="settings-help">Current version: <strong id="settings-current-version">1.0.26</strong></p>
+              <p class="settings-help">Current version: <strong id="settings-current-version">1.0.27</strong></p>
               <p id="update-status" class="settings-help">Checking for updates…</p>
               <div class="permissions-actions">
                 <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
@@ -364,7 +364,7 @@
               <h3>Messages cache</h3>
               <p class="settings-help">
                 MessageManager reads a local copy of your Messages database.
-                Enable Full Disk Access for <strong>Python.app</strong>, then sync.
+                Sync with <strong>Python.app</strong> Full Disk Access (see Troubleshoot if sync fails).
               </p>
               <div id="settings-cache-meta" class="cache-meta" aria-live="polite"></div>
 
@@ -384,28 +384,12 @@
                 <button type="button" id="settings-sync-cache-btn" class="primary">Sync cache now</button>
               </div>
 
-              <div id="cache-sync-alert" class="cache-sync-alert hidden" role="alert" aria-live="polite"></div>
-              <p id="cache-sync-progress" class="settings-help"></p>
-            </section>
-
-            <section class="settings-section">
-              <h3>Full Disk Access</h3>
-              <p class="settings-help">
-                Terminal can work because it already has FDA — that does not grant MessageManager or Python.
-                Use <strong>Prepare FDA</strong> to register those apps, enable them in System Settings, then Retest.
-              </p>
-              <ol id="fda-steps" class="fda-steps settings-help">
-                <li>Prepare FDA (opens settings + reveals the apps)</li>
-                <li>Turn ON <strong>Python</strong> (python.org Python.app) — required for Sync cache</li>
-                <li>Optionally turn ON <strong>MessageManager</strong> for launch-time cache copy</li>
-                <li>Retest, then Sync cache with Python.app</li>
-              </ol>
-              <ul id="fda-probe-list" class="fda-probe-list" aria-label="Full Disk Access probes"></ul>
-              <p id="fda-guidance" class="settings-help"></p>
-              <div class="permissions-actions">
-                <button type="button" id="settings-fda-prepare-btn" class="primary">Prepare FDA</button>
-                <button type="button" id="settings-fda-probe-btn" class="settings-cancel">Retest</button>
-                <button type="button" id="settings-fda-probe-terminal-btn" class="settings-cancel">Also test Terminal</button>
+              <div class="cache-activity">
+                <div class="cache-activity-head">
+                  <h4>Sync activity</h4>
+                  <button type="button" id="cache-activity-clear-btn" class="settings-cancel cache-activity-clear">Clear</button>
+                </div>
+                <ul id="cache-activity-log" class="cache-activity-log" aria-live="polite" aria-label="Cache sync activity log"></ul>
               </div>
             </section>
           </div>
@@ -420,8 +404,28 @@
               <p id="settings-access-detail" class="settings-help"></p>
               <div class="permissions-actions">
                 <button type="button" id="settings-recheck-access-btn" class="settings-cancel">Recheck access</button>
-                <button type="button" id="settings-run-grant-btn" class="settings-cancel">Prepare FDA</button>
                 <button type="button" id="open-privacy-btn-settings" class="settings-cancel">Privacy Settings</button>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Full Disk Access</h3>
+              <p class="settings-help">
+                Terminal FDA does not grant MessageManager or Python.
+                Use <strong>Prepare FDA</strong> to register those apps, enable them in System Settings, then Retest.
+              </p>
+              <ol id="fda-steps" class="fda-steps settings-help">
+                <li>Prepare FDA (opens settings + reveals the apps)</li>
+                <li>Turn ON <strong>Python</strong> (python.org Python.app) — required for Sync cache</li>
+                <li>Optionally turn ON <strong>MessageManager</strong> for launch-time cache copy</li>
+                <li>Retest, then open Cache and Sync with Python.app</li>
+              </ol>
+              <ul id="fda-probe-list" class="fda-probe-list" aria-label="Full Disk Access probes"></ul>
+              <p id="fda-guidance" class="settings-help"></p>
+              <div class="permissions-actions">
+                <button type="button" id="settings-fda-prepare-btn" class="primary">Prepare FDA</button>
+                <button type="button" id="settings-fda-probe-btn" class="settings-cancel">Retest</button>
+                <button type="button" id="settings-fda-probe-terminal-btn" class="settings-cancel">Also test Terminal</button>
               </div>
             </section>
 
@@ -439,6 +443,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=20260718g"></script>
+    <script src="/static/app.js?v=20260718h"></script>
   </body>
 </html>
