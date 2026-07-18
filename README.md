@@ -1,167 +1,146 @@
-# MessageManager 1.0
+# MessageManager
 
-Local macOS app that reads your Messages database, lets you tag conversations (business, personal, ignore, or custom categories), and generates summaries on demand.
+Local macOS app for browsing, categorizing, and summarizing your iMessage conversations — entirely on your machine.
 
-## Requirements
+**Current release:** [v1.0.8](https://github.com/srtviperjr/MessageManager/releases/tag/v1.0.8)
 
-- macOS with a Messages database at `~/Library/Messages/chat.db`
-- Python 3.9+
-- **Full Disk Access** for the app that runs the server (Terminal, iTerm, Cursor, or MessageManager.app)
+![App icon](docs/screenshots/app-icon.png)
 
-### Grant Full Disk Access
+## What it does
 
-1. Open **System Settings → Privacy & Security → Full Disk Access**
-2. Enable access for the app that launches the server:
-   - **MessageManager** if you use the `.app`
-   - **Cursor** if you start it from Cursor’s terminal
-   - **Terminal** / **iTerm** if you start it from there
-3. Fully quit and reopen that app, then launch again
+MessageManager reads a **read-only copy** of your Messages database, resolves names from Contacts when possible, lets you tag conversations, and generates on-device summaries.
 
-Without this, macOS blocks reads of `chat.db`.
+| Area | Capabilities |
+|---|---|
+| Conversations | Load by count or recent activity; search; preview + recent messages |
+| Categories | Business, Personal, Uncategorized, Ignore, plus custom categories |
+| Summaries | Local extractive summarizer; optional Apple Intelligence (Apple Silicon + Shortcut) |
+| Ops | Settings, in-app Logs, Quit, GitHub update checks |
+| Privacy | `127.0.0.1` only; no message upload |
 
-## Setup (development)
+Detailed requirements: [REQUIREMENTS.md](REQUIREMENTS.md)  
+Prompt history for this project: [docs/PROMPTS.md](docs/PROMPTS.md)
+
+## Screenshots (demo data)
+
+These use fictional test conversations — not a live Messages export.
+
+![Conversation list and summary](docs/screenshots/conversation-view.png)
+
+![Settings](docs/screenshots/settings.png)
+
+Open the interactive fixture page locally: [docs/demo.html](docs/demo.html).
+
+## Install (recommended)
+
+1. Download **`MessageManager.pkg`** from the [latest GitHub Release](https://github.com/srtviperjr/MessageManager/releases/latest).
+2. Open the package (unsigned builds: **right-click → Open** the first time, or System Settings → Privacy & Security → Open Anyway).
+3. Finish the installer — the app always lands in **/Applications/MessageManager.app**.
+4. If Python is missing, the installer installs Python 3.12 from python.org and app dependencies.
+5. Grant **Full Disk Access** to **MessageManager**:
+   - System Settings → Privacy & Security → Full Disk Access → enable MessageManager
+   - Quit MessageManager completely, then open it again
+6. A browser window opens to the local UI (`http://127.0.0.1:8741`).
+
+### Updates
+
+On launch (and under **Settings → Updates**), MessageManager checks GitHub Releases and can download the newer `MessageManager.pkg` for you. After installing an update, quit and reopen so migrations apply.
+
+### Gatekeeper vs Full Disk Access
+
+| Prompt | Meaning |
+|---|---|
+| “Untrusted developer” / can’t open | Gatekeeper — use right-click → Open (or notarize builds for a clean double-click) |
+| Can’t read Messages / Contacts | Full Disk Access — required even for notarized apps |
+
+There is no supported way to skip Gatekeeper for public unsigned downloads without Apple notarization (Developer ID + notary).
+
+## Quick start after install
+
+1. Choose how many conversations to load (or load by activity), then **Start loading**.
+2. Use the chips at the top of the main pane to filter All / Business / Personal / Uncategorized / Ignore.
+3. Select a conversation → review recent messages → set a category → **Summarize** (optional day range).
+4. Use **Settings** for Apple Intelligence, auto-load defaults, and custom categories.
+5. Use **Logs** in the status bar if something fails.
+
+### Optional: Apple Intelligence summaries
+
+On Apple Silicon only:
+
+1. Create a Shortcut named **`MessageManager Summarize`** that receives text, runs **Summarize**, and outputs the result.
+2. In MessageManager **Settings**, enable Apple Intelligence.
+
+With the toggle on, failures are surfaced (no silent fallback to extractive).
+
+## Development setup
 
 ```bash
-cd ~/Documents/imessage-categorizer
+git clone https://github.com/srtviperjr/MessageManager.git
+cd MessageManager
 python3 -m pip install --user -r requirements.txt
 python3 run.py
 ```
 
 Open [http://127.0.0.1:8741](http://127.0.0.1:8741).
 
-## Features
+Grant Full Disk Access to the app that launches Python (Terminal, Cursor, etc.). The packaged `.app` uses a native launcher that copies Messages + Contacts into Application Support so FDA applies reliably.
 
-- Browse recent conversations from your local Messages DB (read-only copy)
-- Resolve phone numbers / emails to names from macOS Contacts
-- Filter by business / personal / uncategorized / ignore / custom categories
-- Search by name, phone/email, or preview text
-- Persist categories in `data/categories.db` (local only)
-- Summarize a conversation with a local extractive summarizer
-- Optional **Apple Intelligence** summaries on Apple Silicon (Settings)
-- Built-in update checks against GitHub Releases
-- Automatic data migrations when upgrading versions
-
-## Apple Intelligence summaries (Apple Silicon)
-
-Summaries stay on-device via a Shortcuts bridge.
-
-1. On an **Apple Silicon** Mac (M1 or later), open **Shortcuts**
-2. Create a shortcut named exactly **`MessageManager Summarize`**
-3. Add these actions:
-   - **Receive** Text input from nowhere (or Shortcut Input)
-   - **Summarize** (Apple Intelligence / Writing Tools) on that text
-   - **Stop and Output** the summary
-4. In **Settings**, turn on **Apple Intelligence**
-5. Open a conversation and click **Summarize**
-
-On Intel Macs the toggle can still be enabled for later use, but AI summaries will explain that Apple Silicon is required and extractive mode remains available when the toggle is off.
-
-Settings are stored under Application Support when using the packaged app (`~/Library/Application Support/MessageManager/`), or `data/` in development.
-
-## Install with the macOS package (recommended)
-
-### 1. Build the installer
+### Build the Mac app / installer
 
 ```bash
-cd ~/Documents/imessage-categorizer
 chmod +x scripts/create-macos-app.sh scripts/create-macos-installer.sh scripts/macos/launch.sh scripts/macos/pkg/postinstall
-./scripts/create-macos-installer.sh
+./scripts/create-macos-app.sh          # → dist/MessageManager.app (or dist/.build/…)
+./scripts/create-macos-installer.sh    # → dist/MessageManager.pkg
 ```
 
-Creates:
-
-- `dist/MessageManager.app`
-- `dist/MessageManager.pkg` (filename is unversioned; version lives inside the package metadata)
-
-### 2. Install on a Mac
-
-1. Double-click `MessageManager.pkg`
-2. Complete the installer (app is always installed to **/Applications/MessageManager.app**)
-3. If Python 3.9+ is missing, the installer downloads and installs Python 3.12 from python.org, then installs app dependencies
-4. When prompted, grant **Full Disk Access** to **MessageManager**
-5. Launch MessageManager from Applications
-
-### Gatekeeper (“untrusted developer”) prompts
-
-macOS blocks unsigned downloads by default. **There is no supported way to skip this for public GitHub downloads without Apple notarization.**
-
-| Distribution | What users see |
-|---|---|
-| Unsigned `.pkg` from GitHub (current default) | First open needs right-click → **Open** (or System Settings → Privacy & Security → Open Anyway) |
-| Signed + notarized `.pkg` | Normal double-click install |
-
-To ship a notarized installer you need an [Apple Developer Program](https://developer.apple.com/programs/) membership (~$99/year), then:
+Publish:
 
 ```bash
-# One-time: create Developer ID Application + Developer ID Installer certs in Xcode/developer.apple.com
-# One-time: store notary credentials
-xcrun notarytool store-credentials notary-profile \
-  --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-password"
+gh release create v1.0.8 dist/MessageManager.pkg \
+  --title "MessageManager 1.0.8" \
+  --notes "Release notes here"
+```
 
+Optional notarization (Apple Developer Program):
+
+```bash
 export CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 export INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)"
 export NOTARY_PROFILE="notary-profile"
 ./scripts/create-macos-installer.sh
 ```
 
-**Full Disk Access** is separate from Gatekeeper — macOS always requires that permission for reading Messages, even with a notarized app.
+## Architecture (short)
 
-### 3. Updates
-
-On every launch, MessageManager checks GitHub Releases and prompts if a newer version is available. You can also use **Settings → Updates**. Choosing install downloads `MessageManager.pkg` and opens it; finish the installer, then quit and reopen so migrations can apply.
-
-To publish a release:
-
-```bash
-gh release create v1.0.8 dist/MessageManager.pkg --title "MessageManager 1.0.8" --notes "Release 1.0.8"
+```
+MessageManager.app (native launcher)
+  → copy Messages + Contacts DBs into Application Support (under FDA)
+  → launch.sh → local venv → uvicorn (127.0.0.1:8741) → browser UI
 ```
 
-### Dev / direct `.app` copy
-
-```bash
-./scripts/create-macos-app.sh
-```
-
-Then copy `dist/MessageManager.app` to Applications. The other Mac needs:
-
-- macOS 13+
-- **Python 3.9+ from [python.org](https://www.python.org/downloads/macos/)** (recommended — the built-in `/usr/bin/python3` stub often cannot create a virtual environment)
-- Messages + Contacts data for that user account
-
-If launch says it cannot create a virtual environment: install Python from python.org, then reopen MessageManager.
-
-### Logs
-
-When launched as **MessageManager.app**, logs are here:
-
-- `~/Library/Application Support/MessageManager/logs/app.log` — API / summary errors
-- `~/Library/Application Support/MessageManager/logs/server.log` — uvicorn server output
-- `~/Library/Application Support/MessageManager/logs/launch.log` — app launcher output
-
-In the UI, use the **Logs** button in the status bar to see these paths.
-
-When running with `python3 run.py` from the project folder, logs go under `logs/` in the project (or next to `THREAD_LEDGER_DATA` for the packaged app).
-
-### 3. First launch on the other Mac
-
-1. If macOS blocks it: **right-click → Open** (Gatekeeper)
-2. A browser window opens to the app; a small **MessageManager** control window stays open while it runs (use **Quit MessageManager** there, or **Quit** in the browser footer)
-3. Grant **Full Disk Access** to **MessageManager**:
-   - System Settings → Privacy & Security → Full Disk Access → enable MessageManager
-   - Quit the app and open it again
-4. Optional Apple Intelligence: create the **MessageManager Summarize** Shortcut (Apple Silicon only), then enable the toggle in the sidebar
-
-Logs and the Python virtualenv live in:
-
-`~/Library/Application Support/MessageManager/`
-
-### Optional: custom Dock icon
-
-In Finder: right-click **MessageManager.app** → **Get Info** → drag any `.icns`/`.png` onto the small icon in the top-left of that window.
+| Path | Role |
+|---|---|
+| `~/Library/Application Support/MessageManager/data/` | Categories, settings, migrations |
+| `…/messages-cache/` | Copied `chat.db` |
+| `…/contacts-cache/` | Copied AddressBook DBs |
+| `…/logs/` | `launch.log`, `server.log`, `app.log` |
 
 ## Privacy
 
-- Everything stays on your machine
-- The server binds to `127.0.0.1` only
-- Categories are stored under `data/` in the project (dev) or under Application Support when launched from the `.app`
-- Message content is read from a temporary copy of `chat.db` and never uploaded
+- Everything stays on your Mac.
+- The server listens on localhost only.
+- Categories and settings are local SQLite/JSON.
+- Message content is read from temporary / cache copies of Apple’s databases and is never uploaded.
+- Network use is limited to GitHub Releases (updates) and optional Python install during packaging setup.
+
+## Continuing development on another Mac
+
+1. Clone this repo (or pull `main`).
+2. Install the latest release to verify runtime behavior, or run `python3 run.py` for UI work.
+3. Read [REQUIREMENTS.md](REQUIREMENTS.md) and [docs/PROMPTS.md](docs/PROMPTS.md) for product scope and history.
+4. After product changes, rebuild with `./scripts/create-macos-app.sh` before finishing.
+5. Ship updates as GitHub Releases with asset name **`MessageManager.pkg`** (unversioned filename).
+
+## License / ownership
+
+Private use unless otherwise stated by the repository owner. Messages and Contacts data remain under your macOS account controls.
