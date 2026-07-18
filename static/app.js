@@ -120,8 +120,8 @@ const els = {
   runGrantScriptBtn: document.getElementById("run-grant-script-btn"),
   syncCacheBtn: document.getElementById("sync-cache-btn"),
   cacheRefreshStatus: document.getElementById("cache-refresh-status"),
-  cacheSyncAlert: document.getElementById("cache-sync-alert"),
-  cacheSyncProgress: document.getElementById("cache-sync-progress"),
+  cacheActivityLog: document.getElementById("cache-activity-log"),
+  cacheActivityClearBtn: document.getElementById("cache-activity-clear-btn"),
   fdaProbeList: document.getElementById("fda-probe-list"),
   fdaGuidance: document.getElementById("fda-guidance"),
   settingsFdaPrepareBtn: document.getElementById("settings-fda-prepare-btn"),
@@ -150,12 +150,16 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.26";
+state.appVersion = "1.0.27";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
 state.fdaProbe = null;
-state.cacheAlert = null;
+state.cacheActivity = [];
+state.cacheLiveProgressId = null;
+
+const CACHE_ACTIVITY_KEY = "messagemanager.cacheActivity.v1";
+const CACHE_ACTIVITY_MAX = 40;
 
 function selectedCacheSyncMethod() {
   const checked = document.querySelector('input[name="cache-sync-method"]:checked');
@@ -164,19 +168,104 @@ function selectedCacheSyncMethod() {
   return method === "app" ? "python" : method;
 }
 
-function setCacheAlert(message, kind = "error") {
-  state.cacheAlert = message ? { message: String(message), kind } : null;
-  if (!els.cacheSyncAlert) return;
-  if (!message) {
-    els.cacheSyncAlert.classList.add("hidden");
-    els.cacheSyncAlert.textContent = "";
-    els.cacheSyncAlert.classList.remove("ok", "info");
+function loadCacheActivity() {
+  try {
+    const raw = localStorage.getItem(CACHE_ACTIVITY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    state.cacheActivity = Array.isArray(parsed) ? parsed.slice(0, CACHE_ACTIVITY_MAX) : [];
+  } catch {
+    state.cacheActivity = [];
+  }
+  // Drop stale in-progress lines left from a previous session.
+  state.cacheActivity = state.cacheActivity.filter((e) => e?.kind !== "progress");
+}
+
+function saveCacheActivity() {
+  try {
+    localStorage.setItem(
+      CACHE_ACTIVITY_KEY,
+      JSON.stringify(state.cacheActivity.slice(0, CACHE_ACTIVITY_MAX))
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function renderCacheActivityLog() {
+  if (!els.cacheActivityLog) return;
+  const items = state.cacheActivity || [];
+  if (!items.length) {
+    els.cacheActivityLog.innerHTML =
+      '<li class="cache-log-empty">No sync activity yet. Press Sync cache now to start.</li>';
     return;
   }
-  els.cacheSyncAlert.textContent = String(message);
-  els.cacheSyncAlert.classList.remove("hidden", "ok", "info");
-  if (kind === "ok") els.cacheSyncAlert.classList.add("ok");
-  if (kind === "info") els.cacheSyncAlert.classList.add("info");
+  els.cacheActivityLog.innerHTML = items
+    .map((entry) => {
+      const kind = entry.kind || "info";
+      const mark =
+        kind === "ok" ? "OK" : kind === "error" ? "ERR" : kind === "progress" ? "…" : "·";
+      const when = formatWhen(entry.at) || "";
+      const methodBit = entry.method ? ` · ${syncMethodLabel(entry.method)}` : "";
+      return `<li class="cache-log-${escapeHtml(kind)}">
+        <span class="cache-log-mark">${mark}</span>
+        <span class="cache-log-body">
+          <span class="cache-log-msg">${escapeHtml(entry.message || "")}</span>
+          <span class="cache-log-meta">${escapeHtml(when)}${escapeHtml(methodBit)}</span>
+        </span>
+      </li>`;
+    })
+    .join("");
+}
+
+function appendCacheLog(message, kind = "info", { method = null, replaceId = null } = {}) {
+  const text = String(message || "").trim();
+  if (!text) return null;
+  const now = new Date().toISOString();
+  if (replaceId) {
+    const idx = state.cacheActivity.findIndex((e) => e.id === replaceId);
+    if (idx >= 0) {
+      state.cacheActivity[idx] = {
+        ...state.cacheActivity[idx],
+        message: text,
+        kind,
+        at: now,
+        method: method || state.cacheActivity[idx].method || null,
+      };
+      saveCacheActivity();
+      renderCacheActivityLog();
+      return replaceId;
+    }
+  }
+  const id = `c${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  state.cacheActivity.unshift({
+    id,
+    at: now,
+    kind,
+    message: text,
+    method: method || null,
+  });
+  if (state.cacheActivity.length > CACHE_ACTIVITY_MAX) {
+    state.cacheActivity.length = CACHE_ACTIVITY_MAX;
+  }
+  saveCacheActivity();
+  renderCacheActivityLog();
+  return id;
+}
+
+function clearCacheActivityLog() {
+  state.cacheActivity = [];
+  state.cacheLiveProgressId = null;
+  saveCacheActivity();
+  renderCacheActivityLog();
+}
+
+/** Maps old alert calls into the activity log. */
+function setCacheAlert(message, kind = "error") {
+  if (!message) return;
+  appendCacheLog(
+    message,
+    kind === "ok" ? "ok" : kind === "info" ? "info" : "error"
+  );
 }
 
 function isCacheRelatedStatus(message) {
@@ -186,6 +275,7 @@ function isCacheRelatedStatus(message) {
     text.includes("full disk") ||
     text.includes("permission") ||
     text.includes("sync") ||
+    text.includes("copying") ||
     text.includes("messages database") ||
     text.includes("operation not permitted")
   );
@@ -203,10 +293,12 @@ function selectSettingsTab(tabId) {
   });
   if (id === "cache") {
     refreshCacheMeta();
-    if (state.fdaProbe?.targets) renderFdaProbeList(state.fdaProbe.targets);
+    renderCacheActivityLog();
   }
   if (id === "troubleshoot") {
     refreshDiagnostics({ quiet: true });
+    if (state.fdaProbe?.targets) renderFdaProbeList(state.fdaProbe.targets);
+    if (state.fdaProbe?.summary) renderFdaGuidance(state.fdaProbe.summary);
   }
 }
 
@@ -277,17 +369,15 @@ async function runFdaProbe({ includeTerminal = false } = {}) {
         radio.checked = true;
         persistSettingsPatch({ cache_sync_method: recommended });
       }
-      setCacheAlert(
-        data.summary?.guidance ||
-          `Switched sync method to ${recommended} (works with your current FDA).`,
-        "info"
-      );
-    } else if (data.summary?.guidance) {
-      setCacheAlert(data.summary.guidance, data.summary.clean_path_ready ? "ok" : "info");
+    }
+    if (data.summary?.guidance) {
+      clearStatus(data.summary.guidance);
     }
     return data;
   } catch (err) {
-    setCacheAlert(err.message || "FDA probe failed", "error");
+    const msg = err.message || "FDA probe failed";
+    if (els.fdaGuidance) els.fdaGuidance.textContent = msg;
+    clearStatus(msg);
     renderFdaProbeList([]);
     return null;
   } finally {
@@ -298,28 +388,30 @@ async function runFdaProbe({ includeTerminal = false } = {}) {
 }
 
 async function prepareFda() {
+  selectSettingsTab("troubleshoot");
   if (els.settingsFdaPrepareBtn) els.settingsFdaPrepareBtn.disabled = true;
-  setCacheAlert(
-    "Registering MessageManager + Python.app, then opening Full Disk Access…",
-    "info"
-  );
+  if (els.fdaGuidance) {
+    els.fdaGuidance.textContent =
+      "Registering MessageManager + Python.app, then opening Full Disk Access…";
+  }
+  clearStatus("Opening Full Disk Access…");
   try {
     const data = await api("/api/permissions/prepare-fda", { method: "POST" });
     const revealed = (data.revealed || []).join(" · ");
-    setCacheAlert(
-      [
-        data.detail || "Opened Full Disk Access",
-        revealed ? `Revealed: ${revealed}` : "",
-        "Turn ON MessageManager and Python.app, then press Retest.",
-      ]
-        .filter(Boolean)
-        .join(" "),
-      "info"
-    );
-    if (els.fdaGuidance && Array.isArray(data.steps) && data.steps.length) {
-      els.fdaGuidance.textContent = data.steps.join(" ");
+    const detail = [
+      data.detail || "Opened Full Disk Access",
+      revealed ? `Revealed: ${revealed}` : "",
+      "Turn ON Python.app (and MessageManager if you want launch-time copy), then Retest.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    if (els.fdaGuidance) {
+      els.fdaGuidance.textContent =
+        Array.isArray(data.steps) && data.steps.length
+          ? data.steps.join(" ")
+          : detail;
     }
-    // Show registration probe results if present
+    clearStatus(detail);
     const registered = data.registered || {};
     const targets = [registered.app, registered.python].filter(Boolean);
     if (targets.length) {
@@ -327,7 +419,9 @@ async function prepareFda() {
     }
     return data;
   } catch (err) {
-    setCacheAlert(err.message || "Could not prepare Full Disk Access", "error");
+    const msg = err.message || "Could not prepare Full Disk Access";
+    if (els.fdaGuidance) els.fdaGuidance.textContent = msg;
+    clearStatus(msg);
     return null;
   } finally {
     if (els.settingsFdaPrepareBtn) els.settingsFdaPrepareBtn.disabled = false;
@@ -515,11 +609,18 @@ function applyLocalFilters() {
 }
 
 function setStatus(message, percent = null, { busy = false, mirrorCache = false } = {}) {
-  if (mirrorCache || (busy && isCacheRelatedStatus(message))) {
-    setCacheAlert(message, busy ? "info" : "error");
-  }
-  if (!busy && isCacheRelatedStatus(message) && /fail|denied|error|missing|could not/i.test(message)) {
-    setCacheAlert(message, "error");
+  if (mirrorCache && busy && message) {
+    const line = percent != null ? `${message} (${Math.round(percent)}%)` : message;
+    state.cacheLiveProgressId = appendCacheLog(line, "progress", {
+      method: selectedCacheSyncMethod(),
+      replaceId: state.cacheLiveProgressId,
+    });
+  } else if (
+    !busy &&
+    isCacheRelatedStatus(message) &&
+    /fail|denied|error|missing|could not/i.test(message || "")
+  ) {
+    appendCacheLog(message, "error", { method: selectedCacheSyncMethod() });
   }
   state.busy = busy;
   els.statusBar.classList.toggle("busy", busy);
@@ -1358,7 +1459,6 @@ async function exportSupportBundle() {
 }
 
 async function runGrantScript() {
-  selectSettingsTab("cache");
   return prepareFda();
 }
 
@@ -1453,14 +1553,20 @@ async function refreshCacheMeta() {
 
 async function afterCacheReady(result) {
   const size = formatBytes(result?.messages_bytes);
+  const method = result?.method || selectedCacheSyncMethod();
   const msg = size
-    ? `Cache ready (${size}). Press Recheck or Start loading.`
-    : "Cache ready. Press Recheck or Start loading.";
-  clearStatus(msg);
-  setCacheAlert(msg, "ok");
-  if (els.cacheSyncProgress) els.cacheSyncProgress.textContent = "";
+    ? `Cache sync succeeded (${size})`
+    : "Cache sync succeeded";
+  clearStatus(`${msg}. Press Recheck or Start loading.`);
+  if (state.cacheLiveProgressId) {
+    appendCacheLog(msg, "ok", { method, replaceId: state.cacheLiveProgressId });
+  } else {
+    appendCacheLog(msg, "ok", { method });
+  }
+  state.cacheLiveProgressId = null;
   if (els.cacheRefreshStatus) {
-    els.cacheRefreshStatus.textContent = size ? `Cache ready · ${size}` : "Cache ready";
+    els.cacheRefreshStatus.classList.add("hidden");
+    els.cacheRefreshStatus.textContent = "";
   }
   await refreshCacheMeta();
   await refreshDiagnostics({ quiet: true });
@@ -1477,7 +1583,7 @@ async function afterCacheReady(result) {
 
 async function syncMessagesCache() {
   if (state.cacheRefreshing) {
-    setCacheAlert("Cache sync already running", "info");
+    appendCacheLog("Cache sync already running", "info");
     clearStatus("Cache sync already running");
     return null;
   }
@@ -1491,14 +1597,14 @@ async function syncMessagesCache() {
     }
   }
   state.cacheRefreshing = true;
+  state.cacheLiveProgressId = null;
   const buttons = [els.syncCacheBtn, els.settingsSyncCacheBtn].filter(Boolean);
   buttons.forEach((btn) => {
     btn.disabled = true;
   });
-  const labels = { python: "Python", terminal: "Terminal", app: "MessageManager" };
-  const startMsg = `Starting ${labels[method] || method} cache sync…`;
-  setCacheAlert(startMsg, "info");
-  if (els.cacheSyncProgress) els.cacheSyncProgress.textContent = startMsg;
+  const startMsg = `Starting ${syncMethodLabel(method) || method} cache sync…`;
+  appendCacheLog(startMsg, "info", { method });
+  state.cacheLiveProgressId = appendCacheLog(startMsg, "progress", { method });
   if (els.cacheRefreshStatus) {
     els.cacheRefreshStatus.classList.remove("hidden");
     els.cacheRefreshStatus.textContent = startMsg;
@@ -1510,7 +1616,6 @@ async function syncMessagesCache() {
         onProgress: (message, percent) => {
           setStatus(message, percent, { busy: true, mirrorCache: true });
           const line = percent != null ? `${message} (${percent}%)` : message;
-          if (els.cacheSyncProgress) els.cacheSyncProgress.textContent = line;
           if (els.cacheRefreshStatus) els.cacheRefreshStatus.textContent = line;
         },
       }
@@ -1520,11 +1625,21 @@ async function syncMessagesCache() {
   } catch (err) {
     const detail =
       err.message ||
-      "Cache sync failed — enable Full Disk Access for the selected method, then retry.";
+      "Cache sync failed — enable Full Disk Access for the selected method (Troubleshoot), then retry.";
     clearStatus(detail);
-    setCacheAlert(detail, "error");
-    if (els.cacheSyncProgress) els.cacheSyncProgress.textContent = "";
-    if (els.cacheRefreshStatus) els.cacheRefreshStatus.textContent = detail;
+    if (state.cacheLiveProgressId) {
+      appendCacheLog(detail, "error", {
+        method,
+        replaceId: state.cacheLiveProgressId,
+      });
+    } else {
+      appendCacheLog(detail, "error", { method });
+    }
+    state.cacheLiveProgressId = null;
+    if (els.cacheRefreshStatus) {
+      els.cacheRefreshStatus.classList.add("hidden");
+      els.cacheRefreshStatus.textContent = "";
+    }
     return null;
   } finally {
     state.cacheRefreshing = false;
@@ -1693,9 +1808,7 @@ function openSettingsModal(tab = "user") {
   checkForUpdates({ quiet: true });
   refreshDiagnostics({ quiet: true });
   refreshCacheMeta();
-  if (state.cacheAlert?.message) {
-    setCacheAlert(state.cacheAlert.message, state.cacheAlert.kind || "error");
-  }
+  renderCacheActivityLog();
   selectSettingsTab(tab);
   els.settingsModal.classList.remove("hidden");
 }
@@ -2194,6 +2307,7 @@ function bindEvents() {
   els.settingsFdaProbeTerminalBtn?.addEventListener("click", () =>
     runFdaProbe({ includeTerminal: true })
   );
+  els.cacheActivityClearBtn?.addEventListener("click", () => clearCacheActivityLog());
   els.settingsOpenLogsBtn?.addEventListener("click", () => openLogsModal());
   document.querySelectorAll('input[name="cache-sync-method"]').forEach((input) => {
     input.addEventListener("change", () => {
@@ -2287,11 +2401,13 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  loadCacheActivity();
+  renderCacheActivityLog();
   setStatus("Ready — choose a conversation count and press Start loading");
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.26";
+    state.appVersion = health.version || state.appVersion || "1.0.27";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

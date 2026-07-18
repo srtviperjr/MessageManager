@@ -1056,29 +1056,96 @@ button.messages-count-btn:disabled {
   gap: 1.1rem;
 }
 
-.cache-sync-alert {
-  margin-top: 0.75rem;
-  padding: 0.7rem 0.8rem;
+.cache-activity {
+  margin-top: 0.85rem;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  border: 1px solid rgba(155, 44, 44, 0.28);
-  background: #fff1f0;
-  color: #7a221f;
-  font-size: 0.84rem;
-  line-height: 1.4;
-  white-space: pre-wrap;
+  background: #f7f8fa;
+  overflow: hidden;
+}
+
+.cache-activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.cache-activity-head h4 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.cache-activity-clear {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.cache-activity-log {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0;
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.cache-activity-log li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.55rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.cache-activity-log li:last-child {
+  border-bottom: 0;
+}
+
+.cache-log-empty {
+  display: block !important;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+
+.cache-log-mark {
+  font-weight: 700;
+  font-size: 0.72rem;
+  min-width: 1.6rem;
+}
+
+.cache-log-ok .cache-log-mark {
+  color: var(--business);
+}
+
+.cache-log-error .cache-log-mark {
+  color: #9b2c2c;
+}
+
+.cache-log-progress .cache-log-mark,
+.cache-log-info .cache-log-mark {
+  color: #5a6a7a;
+}
+
+.cache-log-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.cache-log-msg {
+  color: var(--ink);
   word-break: break-word;
 }
 
-.cache-sync-alert.ok {
-  border-color: rgba(36, 120, 72, 0.28);
-  background: #eefaf1;
-  color: #1f5c36;
-}
-
-.cache-sync-alert.info {
-  border-color: rgba(40, 80, 140, 0.22);
-  background: #eef4fb;
-  color: #1f3d66;
+.cache-log-meta {
+  color: var(--ink-soft);
+  font-size: 0.72rem;
 }
 
 .fda-probe-list {
