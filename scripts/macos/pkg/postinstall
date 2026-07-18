@@ -99,6 +99,12 @@ install_python_runtime() {
   fi
   rm -rf "${tmp}"
   log "Python ${version} installed"
+  # python.org builds need their certificate bundle for HTTPS (update checks).
+  local cert_cmd="/Applications/Python ${version%.*}/Install Certificates.command"
+  if [[ -f "${cert_cmd}" ]]; then
+    log "Installing Python SSL certificates via ${cert_cmd}"
+    bash "${cert_cmd}" >>"${LOG}" 2>&1 || true
+  fi
   return 0
 }
 

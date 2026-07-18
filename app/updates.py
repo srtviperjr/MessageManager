@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 import urllib.error
 import urllib.request
 from typing import Any, Optional
@@ -23,6 +24,20 @@ def is_newer(candidate: str, current: str = APP_VERSION) -> bool:
     return _parse_version(candidate) > _parse_version(current)
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """Use certifi CAs when available (python.org builds often lack system roots)."""
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001
+        return ssl.create_default_context()
+
+
+def _urlopen(req: urllib.request.Request, timeout: float):
+    return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context())
+
+
 def check_for_update(timeout: float = 6.0) -> dict[str, Any]:
     """Return latest GitHub release info compared to this build."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -34,7 +49,7 @@ def check_for_update(timeout: float = 6.0) -> dict[str, Any]:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
@@ -115,7 +130,7 @@ def download_installer(url: str, dest_dir: Optional[str] = None) -> dict[str, An
         headers={"User-Agent": f"MessageManager/{APP_VERSION}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp, dest.open("wb") as out:
+        with _urlopen(req, timeout=120) as resp, dest.open("wb") as out:
             while True:
                 chunk = resp.read(1024 * 256)
                 if not chunk:
