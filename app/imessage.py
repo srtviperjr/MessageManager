@@ -475,7 +475,22 @@ def get_thread_messages(
         cleanup_temp_db(db_path)
 
 
-def access_status() -> dict[str, Any]:
+def _try_open_readonly(db_path: Path) -> None:
+    """Open chat.db in place (no copy). Raises on failure."""
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        conn.execute("SELECT 1 FROM chat LIMIT 1")
+    finally:
+        conn.close()
+
+
+def access_status(*, quick: bool = False) -> dict[str, Any]:
+    """Report Messages DB access.
+
+    quick=True: open the cache/live DB in place with SELECT 1 only — no full
+    copy and no COUNT(*). Use this for /api/health so the AppKit keep-alive
+    poll cannot stall (or look "crashed") on large chat.db files.
+    """
     cache_dir = _messages_cache_dir()
     using_cache = bool(cache_dir and (cache_dir / "chat.db").is_file())
     live_exists = False
@@ -489,19 +504,37 @@ def access_status() -> dict[str, Any]:
     available_threads: Optional[int] = None
     # Prefer the launcher cache (and live DB). Do not bail just because the live
     # path is hidden/unreadable without Full Disk Access.
-    try:
-        conn, db_path = connect_messages()
-        conn.execute("SELECT 1 FROM chat LIMIT 1")
-        available_threads = int(
-            conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()["n"] or 0
-        )
-        conn.close()
-        cleanup_temp_db(db_path)
-        readable = True
-    except MessagesAccessError as exc:
-        error = str(exc)
-    except Exception as exc:  # noqa: BLE001
-        error = str(exc)
+    if quick:
+        candidates: list[Path] = []
+        if using_cache and cache_dir is not None:
+            candidates.append(cache_dir / "chat.db")
+        if live_exists:
+            candidates.append(CHAT_DB)
+        last_err: Optional[str] = None
+        for candidate in candidates:
+            try:
+                _try_open_readonly(candidate)
+                readable = True
+                last_err = None
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_err = str(exc)
+        if not readable:
+            error = last_err
+    else:
+        try:
+            conn, db_path = connect_messages()
+            conn.execute("SELECT 1 FROM chat LIMIT 1")
+            available_threads = int(
+                conn.execute("SELECT COUNT(*) AS n FROM chat").fetchone()["n"] or 0
+            )
+            conn.close()
+            cleanup_temp_db(db_path)
+            readable = True
+        except MessagesAccessError as exc:
+            error = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
 
     if not live_exists and not using_cache and not readable:
         error = error or f"Database not found at {CHAT_DB}"

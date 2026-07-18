@@ -212,9 +212,18 @@ def _build_summary(chat_id: int, req: SummaryRequest, progress=None) -> dict[str
     return result
 
 
+@app.get("/api/ping")
+def api_ping() -> dict:
+    """Cheap liveness probe for the macOS AppKit keep-alive poll."""
+    return {"ok": True, "version": APP_VERSION}
+
+
 @app.get("/api/health")
 def health() -> dict:
-    messages = access_status()
+    # quick=True: never copy/COUNT the Messages DB on health — a large chat.db
+    # was blocking this handler long enough for the AppKit poll (1.5s) to treat
+    # the server as dead and quit the Dock app ("crash").
+    messages = access_status(quick=True)
     contacts = contacts_status(quick=True)
     runtime = runtime_status()
     fda_target = runtime.get("fda_target")
@@ -743,7 +752,17 @@ def api_summary_stream(
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    # Never let the browser keep a stale shell after upgrades — cached
+    # index.html was leaving users on the old Settings UI while /api/version
+    # already reported the new build (e.g. 1.0.20 HTML + 1.0.22 API).
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
