@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import re
-import shlex
+import shutil
 import ssl
 import subprocess
 import urllib.error
@@ -17,6 +17,9 @@ from typing import Any, Optional
 from app.version import APP_VERSION, GITHUB_REPO
 
 log = logging.getLogger("messagemanager.updates")
+
+# Space-free path so Installer / shell quoting never breaks on "Application Support".
+UPDATE_PKG_PATH = Path("/tmp/MessageManager-update.pkg")
 
 
 def _parse_version(value: str) -> tuple[int, ...]:
@@ -46,7 +49,7 @@ def _urlopen(req: urllib.request.Request, timeout: float):
 
 
 def updates_dir() -> Path:
-    """Private folder for update pkgs — avoids macOS Downloads TCC prompts."""
+    """Private folder for update downloads — avoids macOS Downloads TCC prompts."""
     path = Path.home() / "Library" / "Application Support" / "MessageManager" / "updates"
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -131,16 +134,14 @@ def check_for_update(timeout: float = 6.0) -> dict[str, Any]:
 
 
 def download_installer(url: str, dest_dir: Optional[str] = None) -> dict[str, Any]:
-    """Download an installer asset to Application Support/updates (or dest_dir)."""
+    """Download an installer asset (default: Application Support/updates)."""
     target_dir = Path(dest_dir).expanduser() if dest_dir else updates_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
     name = url.rstrip("/").split("/")[-1] or "MessageManager-update.pkg"
-    # Keep a stable name so cleanup is predictable.
     if not name.lower().endswith(".pkg"):
         name = "MessageManager-update.pkg"
     dest = target_dir / name
 
-    # Remove older update pkgs in this folder first (same permission domain).
     for stale in target_dir.glob("MessageManager*.pkg"):
         try:
             if stale.resolve() != dest.resolve():
@@ -165,80 +166,32 @@ def download_installer(url: str, dest_dir: Optional[str] = None) -> dict[str, An
     return {"ok": True, "path": str(dest), "detail": None}
 
 
-def schedule_privileged_install(pkg_path: str) -> dict[str, Any]:
-    """Install a downloaded .pkg with a single admin password, then exit.
+def open_installer(pkg_path: str) -> dict[str, Any]:
+    """Stage the pkg at /tmp and open it with Installer.app.
 
-    Avoids opening Installer.app against ~/Downloads (which triggered repeated
-    Files and Folders prompts for Downloads + Applications). Uses the system
-    ``installer`` tool once under administrator privileges. Postinstall still
-    relaunches MessageManager after the package scripts finish.
+    The 1.0.30 detached ``osascript`` + ``installer`` path failed in practice
+    (auth from a background script / paths with spaces) and left the app quit
+    with a “cancelled or failed” notification. Opening Installer.app is reliable;
+    using /tmp avoids Downloads TCC prompts.
     """
-    pkg = Path(pkg_path).expanduser()
-    if not pkg.is_file():
-        return {"ok": False, "detail": f"Installer not found: {pkg}"}
+    src = Path(pkg_path).expanduser()
+    if not src.is_file():
+        return {"ok": False, "detail": f"Installer not found: {src}", "path": None}
 
-    support = Path.home() / "Library" / "Application Support" / "MessageManager"
-    helper_dir = support / "bin"
-    helper_dir.mkdir(parents=True, exist_ok=True)
-    helper = helper_dir / "run-update-install.sh"
-    log_path = support / "logs" / "update-install.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    pkg_q = shlex.quote(str(pkg))
-    updates_q = shlex.quote(str(updates_dir()))
-    log_q = shlex.quote(str(log_path))
-
-    helper.write_text(
-        f"""#!/bin/bash
-set +e
-PKG={pkg_q}
-UPDATES={updates_q}
-LOG={log_q}
-
-log() {{
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"$LOG" 2>/dev/null || true
-}}
-
-log "update helper starting for $PKG"
-
-# Let the running app finish shutting down so the bundle can be replaced.
-for _ in $(seq 1 60); do
-  if ! pgrep -f "MessageManager.app/Contents/MacOS/MessageManager" >/dev/null 2>&1; then
-    break
-  fi
-  /usr/bin/osascript -e 'tell application "MessageManager" to quit' >/dev/null 2>&1 || true
-  sleep 0.5
-done
-sleep 0.3
-
-# One admin password → install into /Applications. No Installer.app GUI and no
-# ~/Downloads touch, so macOS should not re-prompt for Downloads/Applications.
-log "requesting administrator privileges for installer"
-/usr/bin/osascript -e "do shell script \\"/usr/sbin/installer -pkg $(printf %q "$PKG") -target /\\" with administrator privileges" >>"$LOG" 2>&1
-STATUS=$?
-log "installer exit status=$STATUS"
-
-# Drop the private update pkg after the attempt (postinstall also cleans as root).
-rm -f "$PKG" 2>/dev/null || true
-rm -f "$UPDATES"/MessageManager*.pkg 2>/dev/null || true
-
-if [[ "$STATUS" -ne 0 ]]; then
-  log "install failed or cancelled"
-  /usr/bin/osascript -e 'display notification "Update install was cancelled or failed. You can try again from Settings." with title "MessageManager"' >/dev/null 2>&1 || true
-fi
-
-# Relaunch is handled once by the pkg postinstall finish-install helper.
-rm -f "$0" 2>/dev/null || true
-log "update helper finished"
-exit "$STATUS"
-""",
-        encoding="utf-8",
-    )
-    helper.chmod(helper.stat().st_mode | 0o755)
+    try:
+        shutil.copy2(src, UPDATE_PKG_PATH)
+        # Best-effort: drop the Application Support copy; /tmp is what Installer uses.
+        try:
+            if src.resolve() != UPDATE_PKG_PATH.resolve():
+                src.unlink(missing_ok=True)
+        except OSError:
+            pass
+    except OSError as exc:
+        return {"ok": False, "detail": f"Could not stage installer: {exc}", "path": None}
 
     try:
         subprocess.Popen(  # noqa: S603
-            ["/bin/bash", str(helper)],
+            ["open", str(UPDATE_PKG_PATH)],
             start_new_session=True,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -246,7 +199,12 @@ exit "$STATUS"
             env=os.environ.copy(),
         )
     except OSError as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": str(exc), "path": str(UPDATE_PKG_PATH)}
 
-    log.info("Scheduled privileged install via %s", helper)
-    return {"ok": True, "path": str(pkg), "helper": str(helper), "detail": None}
+    log.info("Opened installer %s", UPDATE_PKG_PATH)
+    return {"ok": True, "path": str(UPDATE_PKG_PATH), "detail": None}
+
+
+# Back-compat alias for any older call sites.
+def schedule_privileged_install(pkg_path: str) -> dict[str, Any]:
+    return open_installer(pkg_path)

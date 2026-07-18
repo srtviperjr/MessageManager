@@ -241,6 +241,8 @@ cleanup_downloaded_pkgs() {
   # macOS Files-and-Folders prompts. Root can delete these paths without TCC.
   local home="${CONSOLE_HOME}"
   rm -f \
+    /tmp/MessageManager-update.pkg \
+    /tmp/MessageManager.pkg \
     "${home}/Library/Application Support/MessageManager/updates/MessageManager.pkg" \
     "${home}/Library/Application Support/MessageManager/updates/"MessageManager*.pkg \
     "${home}/Downloads/MessageManager.pkg" \
@@ -248,7 +250,11 @@ cleanup_downloaded_pkgs() {
     "${home}/Desktop/MessageManager.pkg" \
     "${home}/Desktop/"MessageManager*.pkg \
     2>/dev/null || true
-  log "Removed MessageManager update pkgs (Application Support/updates, Downloads, Desktop)"
+  # Also remove the broken 1.0.30 privileged-install helper if present.
+  rm -f \
+    "${home}/Library/Application Support/MessageManager/bin/run-update-install.sh" \
+    2>/dev/null || true
+  log "Removed MessageManager update pkgs (/tmp, Application Support/updates, Downloads, Desktop)"
 }
 
 # Help Launch Services / Dock keep a single identity for /Applications.
@@ -284,23 +290,11 @@ APP="/Applications/MessageManager.app"
 MODE="${mode}"
 DEPS_OK="${DEPS_OK}"
 
-# Wait for the install UI/CLI to finish (up to ~10 minutes).
-# - GUI (.pkg double-click): wait until Installer.app quits (success dialog closed).
-# - CLI (in-app update): Installer.app never appears; wait until \`installer\` exits
-#   so we do not relaunch while the package is still committing.
-SAW_GUI=0
+# Wait for Installer.app to finish (success dialog closed). Up to ~10 minutes.
+# In-app updates open Installer.app against /tmp/MessageManager-update.pkg.
 for _ in \$(seq 1 1200); do
-  if /usr/bin/pgrep -x Installer >/dev/null 2>&1; then
-    SAW_GUI=1
-  fi
-  if [[ "\${SAW_GUI}" -eq 1 ]]; then
-    if ! /usr/bin/pgrep -x Installer >/dev/null 2>&1; then
-      break
-    fi
-  else
-    if ! /usr/bin/pgrep -x installer >/dev/null 2>&1; then
-      break
-    fi
+  if ! /usr/bin/pgrep -x Installer >/dev/null 2>&1; then
+    break
   fi
   /bin/sleep 0.5
 done
@@ -332,7 +326,9 @@ else
 fi
 
 # Root already removed update pkgs; do not touch Downloads/Desktop here (TCC).
+/bin/rm -f /tmp/MessageManager-update.pkg /tmp/MessageManager.pkg 2>/dev/null || true
 /bin/rm -f "\${HOME}/Library/Application Support/MessageManager/updates/"MessageManager*.pkg 2>/dev/null || true
+/bin/rm -f "\${HOME}/Library/Application Support/MessageManager/bin/run-update-install.sh" 2>/dev/null || true
 /bin/rm -f "\${HOME}/Library/Application Support/MessageManager/bin/finish-install.sh" 2>/dev/null || true
 EOF
   chmod 755 "${helper}" 2>/dev/null || true

@@ -150,7 +150,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.31";
+state.appVersion = "1.0.32";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
@@ -1734,8 +1734,8 @@ async function promptInstallUpdate(info, { force = false } = {}) {
   const install = confirm(
     `MessageManager ${latest} is available (you have ${current}).\n\n` +
       `Download and install now?\n\n` +
-      `macOS will ask once for your password to update the app in Applications. ` +
-      `MessageManager quits, installs, then reopens. The update package is removed automatically.`
+      `The macOS Installer will open. Finish it and close the success window — ` +
+      `MessageManager reopens from Applications. The update package is removed automatically.`
   );
   if (!install) {
     sessionStorage.setItem(key, "dismissed");
@@ -1763,8 +1763,8 @@ async function closeAppForUpgrade() {
   try {
     document.body.innerHTML =
       "<main style='font:500 16px/1.4 system-ui;padding:3rem;text-align:center;color:#1c2430'>" +
-      "Updating MessageManager… Enter your Mac password if asked, then wait — " +
-      "the app reopens from Applications when the install finishes." +
+      "Installer is running. Finish the installer, then close its success window — " +
+      "MessageManager will reopen from Applications." +
       "</main>";
     document.title = "MessageManager — updating";
   } catch {
@@ -1790,16 +1790,16 @@ async function downloadAndInstallUpdate() {
       body: JSON.stringify({ url }),
     });
     setStatus(
-      "Password prompt next — approve once to install. MessageManager will quit and reopen.",
+      "Installer opened — finish it, then close the installer window. MessageManager will reopen.",
       null,
       { busy: true }
     );
     if (els.updateStatus) {
       els.updateStatus.textContent =
-        "Approve the single password prompt to install. MessageManager quits, updates, then reopens from Applications.";
+        "Installer opened. Finish installation and close the installer — MessageManager reopens from Applications.";
     }
-    // Let the privileged install helper start before we tear down the server.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Give Installer.app a moment to present before we tear down.
+    await new Promise((resolve) => setTimeout(resolve, 600));
     await closeAppForUpgrade();
   } catch (err) {
     clearStatus(err.message || "Update download failed");
@@ -2422,7 +2422,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.31";
+    state.appVersion = health.version || state.appVersion || "1.0.32";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

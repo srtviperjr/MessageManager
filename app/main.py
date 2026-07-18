@@ -304,17 +304,17 @@ def api_updates_download(body: UpdateDownloadRequest) -> dict:
     result = updates_store.download_installer(url)
     if not result.get("ok"):
         raise HTTPException(status_code=502, detail=result.get("detail") or "Download failed")
-    # Install with a single admin password from Application Support (not Downloads)
-    # so macOS does not show repeated Files-and-Folders prompts.
+    # Stage at /tmp and open Installer.app (not Downloads — avoids TCC prompts;
+    # not detached osascript installer — that failed with “cancelled or failed”).
     path = result.get("path")
     if path:
-        installed = updates_store.schedule_privileged_install(path)
-        if not installed.get("ok"):
+        opened = updates_store.open_installer(path)
+        if not opened.get("ok"):
             raise HTTPException(
                 status_code=502,
-                detail=installed.get("detail") or "Could not start installer",
+                detail=opened.get("detail") or "Could not open installer",
             )
-        result = {**result, **installed}
+        result = {**result, **opened}
     return result
 
 
