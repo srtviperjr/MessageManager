@@ -5,14 +5,18 @@ alwaysApply: true
 
 # Publish every new version to GitHub
 
-Whenever you bump `APP_VERSION` / `VERSION` (or otherwise prepare a new MessageManager release), finish the turn by shipping it — do not leave the release only local.
+Whenever you bump `APP_VERSION` / `VERSION` (or otherwise prepare a new MessageManager release), finish the turn by shipping a **GitHub Release with `MessageManager.pkg` attached**. Do not leave the release only local. Do not wait for the user to ask.
+
+This is a **macOS product**. The installer must install `/Applications/MessageManager.app` (AppKit binary + bundled app). Never ship a Linux build or change packaging to target Linux.
 
 Required steps for each new version `X.Y.Z`:
 
-1. Rebuild the installer: `./scripts/create-macos-installer.sh` → `dist/MessageManager.pkg`
-2. Commit all product changes (including the version bump)
-3. Push to `origin` (`git push origin HEAD`)
-4. Create the GitHub release with the pkg attached:
+1. Rebuild the installer on macOS when available:
+   `./scripts/create-macos-installer.sh` → `dist/MessageManager.pkg`
+2. If this environment cannot run `pkgbuild` / compile AppKit (e.g. Linux cloud agent), still produce a macOS `.pkg` by updating the app payload from the latest GitHub `.pkg` (keep the universal `Contents/MacOS/MessageManager` binary; replace `Contents/Resources/app`, `VERSION`, and Info.plist version strings), then attach that `.pkg`. Do **not** skip the release.
+3. Commit all product changes (including the version bump)
+4. Push to `origin` (`git push origin HEAD`)
+5. Create the GitHub release with the pkg attached:
 
 ```bash
 export PATH="$PWD/.tools/gh_2.67.0_macOS_amd64/bin:$PATH"
