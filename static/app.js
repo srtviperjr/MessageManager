@@ -134,7 +134,6 @@ const els = {
   settingsSyncCacheBtn: document.getElementById("settings-sync-cache-btn"),
   settingsSyncPython: document.getElementById("setting-sync-python"),
   settingsSyncTerminal: document.getElementById("setting-sync-terminal"),
-  settingsSyncApp: document.getElementById("setting-sync-app"),
   settingsRunGrantBtn: document.getElementById("settings-run-grant-btn"),
   settingsRecheckAccessBtn: document.getElementById("settings-recheck-access-btn"),
   settingsCopyBundleBtn: document.getElementById("settings-copy-bundle-btn"),
@@ -151,7 +150,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.25";
+state.appVersion = "1.0.26";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
@@ -161,7 +160,8 @@ state.cacheAlert = null;
 function selectedCacheSyncMethod() {
   const checked = document.querySelector('input[name="cache-sync-method"]:checked');
   if (checked?.value) return checked.value;
-  return state.settings.cache_sync_method || "python";
+  const method = state.settings.cache_sync_method || "python";
+  return method === "app" ? "python" : method;
 }
 
 function setCacheAlert(message, kind = "error") {
@@ -1371,21 +1371,80 @@ function formatBytes(n) {
   return `${v} B`;
 }
 
+function formatAge(seconds) {
+  if (seconds == null || Number.isNaN(Number(seconds))) return "";
+  const s = Math.max(0, Math.floor(Number(seconds)));
+  if (s < 60) return "just now";
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    return `${m} minute${m === 1 ? "" : "s"} ago`;
+  }
+  if (s < 86400) {
+    const h = Math.floor(s / 3600);
+    return `${h} hour${h === 1 ? "" : "s"} ago`;
+  }
+  const d = Math.floor(s / 86400);
+  if (d < 14) return `${d} day${d === 1 ? "" : "s"} ago`;
+  const when = formatWhen(
+    new Date(Date.now() - s * 1000).toISOString()
+  );
+  return when || `${d} days ago`;
+}
+
+function syncMethodLabel(method) {
+  if (method === "python") return "Python.app";
+  if (method === "terminal") return "Terminal.app";
+  if (method === "app") return "MessageManager.app";
+  if (method && method !== "unknown") return method;
+  return "";
+}
+
 async function refreshCacheMeta() {
   try {
     const info = await api("/api/cache/status");
-    const parts = [];
+    if (!els.settingsCacheMeta) return info;
+
+    const rows = [];
     if (info.messages_cache_exists) {
-      parts.push(`Cache: ${formatBytes(info.messages_cache_bytes)}`);
+      const age = formatAge(info.last_sync_age_seconds ?? info.messages_cache_age_seconds);
+      const via = syncMethodLabel(info.last_sync_method);
+      const size = formatBytes(info.messages_cache_bytes);
+      rows.push(
+        `<div><strong>Last synced:</strong> ${escapeHtml(age || "unknown")}${
+          via ? ` via ${escapeHtml(via)}` : ""
+        }${size ? ` · ${escapeHtml(size)}` : ""}</div>`
+      );
     } else {
-      parts.push("Cache: missing");
+      rows.push("<div><strong>Last synced:</strong> never — press Sync cache now</div>");
     }
+
     if (info.live_db_exists) {
-      parts.push(`Live Messages DB: ${formatBytes(info.live_db_bytes)}`);
+      const liveSize = formatBytes(info.live_db_bytes);
+      const liveAge = formatAge(info.live_db_age_seconds);
+      rows.push(
+        `<div><strong>Live Messages DB:</strong> ${escapeHtml(liveSize || "present")}${
+          liveAge ? ` · updated ${escapeHtml(liveAge)}` : ""
+        }</div>`
+      );
+      if (info.live_db_newer_than_cache) {
+        rows.push(
+          '<div class="cache-meta-warn"><strong>Cache may be stale</strong> — live Messages is newer than the cache. Sync again to refresh.</div>'
+        );
+      }
+    } else if (info.live_db_error) {
+      rows.push(
+        `<div><strong>Live Messages DB:</strong> not readable (${escapeHtml(
+          info.live_db_error
+        )})</div>`
+      );
     }
-    if (els.settingsCacheMeta) {
-      els.settingsCacheMeta.textContent = parts.join(" · ");
-    }
+
+    const policy =
+      info.refresh_policy?.summary ||
+      "Not on a timer. Updated when you press Sync cache (and on app launch if MessageManager has FDA).";
+    rows.push(`<div><strong>How often:</strong> ${escapeHtml(policy)}</div>`);
+
+    els.settingsCacheMeta.innerHTML = rows.join("");
     return info;
   } catch {
     return null;
@@ -1829,10 +1888,10 @@ function fillSettingsForm() {
     els.aiToggle.checked = !!s.apple_intelligence_enabled;
     els.aiToggle.disabled = !state.platform?.apple_silicon;
   }
-  const syncMethod = s.cache_sync_method || "python";
+  let syncMethod = s.cache_sync_method || "python";
+  if (syncMethod === "app") syncMethod = "python";
   if (els.settingsSyncPython) els.settingsSyncPython.checked = syncMethod === "python";
   if (els.settingsSyncTerminal) els.settingsSyncTerminal.checked = syncMethod === "terminal";
-  if (els.settingsSyncApp) els.settingsSyncApp.checked = syncMethod === "app";
   syncSettingsLoadModeUI(s.thread_load_mode || "count");
   renderAiStatus();
   renderSettingsCategoryLists();
@@ -2232,7 +2291,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.25";
+    state.appVersion = health.version || state.appVersion || "1.0.26";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
