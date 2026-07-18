@@ -2,7 +2,7 @@
 
 Local macOS app for browsing, categorizing, and summarizing your iMessage conversations — entirely on your machine.
 
-**Current release:** [v1.0.21](https://github.com/srtviperjr/MessageManager/releases/tag/v1.0.21)
+**Current release:** [v1.0.22](https://github.com/srtviperjr/MessageManager/releases/tag/v1.0.22)
 
 ![App icon](docs/screenshots/app-icon.png)
 
@@ -96,8 +96,8 @@ chmod +x scripts/create-macos-app.sh scripts/create-macos-installer.sh scripts/m
 Publish:
 
 ```bash
-gh release create v1.0.21 dist/MessageManager.pkg \
-  --title "MessageManager 1.0.21" \
+gh release create v1.0.22 dist/MessageManager.pkg \
+  --title "MessageManager 1.0.22" \
   --notes "Release notes here"
 ```
 

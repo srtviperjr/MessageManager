@@ -434,6 +434,40 @@ static BOOL resolve_paths(char *script_out, size_t script_n,
 
 @end
 
+static int run_probe_fda_cli(const char *out_path) {
+  const char *home = getenv("HOME");
+  if (!home || !home[0]) home = "/Users/Shared";
+  char src[PATH_MAX];
+  snprintf(src, sizeof(src), "%s/Library/Messages/chat.db", home);
+  FILE *out = fopen(out_path && out_path[0] ? out_path : "/dev/null", "w");
+  FILE *db = fopen(src, "rb");
+  if (!db) {
+    const char *err = (errno == EPERM || errno == EACCES)
+                          ? "Permission denied"
+                          : strerror(errno);
+    if (out) {
+      fprintf(out, "{\"ok\":false,\"detail\":\"%s\"}\n", err ? err : "Failed");
+      fclose(out);
+    }
+    return 2;
+  }
+  char buf[1];
+  size_t n = fread(buf, 1, 1, db);
+  fclose(db);
+  if (n != 1) {
+    if (out) {
+      fprintf(out, "{\"ok\":false,\"detail\":\"Could not read Messages database\"}\n");
+      fclose(out);
+    }
+    return 2;
+  }
+  if (out) {
+    fprintf(out, "{\"ok\":true,\"detail\":\"Readable\"}\n");
+    fclose(out);
+  }
+  return 0;
+}
+
 static int run_refresh_cache_cli(void) {
   const char *home = getenv("HOME");
   if (!home || !home[0]) home = "/Users/Shared";
@@ -464,6 +498,10 @@ int main(int argc, const char *argv[]) {
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--refresh-cache") == 0) {
       return run_refresh_cache_cli();
+    }
+    if (strcmp(argv[i], "--probe-fda") == 0) {
+      const char *out = (i + 1 < argc) ? argv[i + 1] : "";
+      return run_probe_fda_cli(out);
     }
   }
   @autoreleasepool {

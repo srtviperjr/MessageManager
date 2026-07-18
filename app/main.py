@@ -46,6 +46,7 @@ from app.cache_refresh import (
     progress_file_path,
     refresh_caches,
 )
+from app.fda_probe import probe_all
 from app.permissions_helper import grant_script_paths, run_grant_script
 from app.logs_api import list_log_files, read_log_file
 from app.migrations import run_migrations
@@ -389,6 +390,20 @@ def api_run_grant_script() -> dict:
 @app.get("/api/cache/status")
 def api_cache_status() -> dict:
     return cache_status()
+
+
+@app.get("/api/permissions/fda-probe")
+def api_fda_probe(
+    include_terminal: bool = Query(
+        default=True,
+        description="Also open Terminal briefly to test Terminal.app FDA",
+    ),
+) -> dict:
+    """Test which apps can currently read ~/Library/Messages/chat.db."""
+    try:
+        return probe_all(include_terminal=include_terminal)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/api/cache/progress")

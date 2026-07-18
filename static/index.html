@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260718b" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260718c" />
   </head>
   <body>
     <div class="app">
@@ -18,7 +18,7 @@
         <header class="brand">
           <div class="brand-row">
             <div>
-              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.21</span></span></h1>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.22</span></span></h1>
             </div>
             <button
               type="button"
@@ -243,154 +243,196 @@
 
     <div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="settings-backdrop" data-close-settings></div>
-      <div class="settings-panel">
+      <div class="settings-panel settings-panel-wide">
         <header class="settings-head">
           <h2 id="settings-title">Settings</h2>
           <button type="button" class="icon-btn" data-close-settings aria-label="Close settings">✕</button>
         </header>
+
+        <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+          <button type="button" class="settings-tab active" role="tab" aria-selected="true" data-settings-tab="user">Settings</button>
+          <button type="button" class="settings-tab" role="tab" aria-selected="false" data-settings-tab="cache">Cache</button>
+          <button type="button" class="settings-tab" role="tab" aria-selected="false" data-settings-tab="troubleshoot">Troubleshoot</button>
+        </div>
+
         <form id="settings-form" class="settings-form">
-          <section class="settings-section">
-            <h3>Access &amp; troubleshooting</h3>
-            <p class="settings-help">
-              Choose how to copy Messages into the local cache. On newer macOS,
-              <strong>Python</strong> is usually more reliable than MessageManager.app.
-              Large databases can take several minutes.
-            </p>
-            <fieldset class="settings-fieldset">
-              <legend>Cache sync method</legend>
-              <label class="settings-check">
-                <input type="radio" name="cache-sync-method" value="python" id="setting-sync-python" checked />
-                <span>Python.app (recommended)</span>
-              </label>
-              <label class="settings-check">
-                <input type="radio" name="cache-sync-method" value="terminal" id="setting-sync-terminal" />
-                <span>Terminal.app</span>
-              </label>
-              <label class="settings-check">
-                <input type="radio" name="cache-sync-method" value="app" id="setting-sync-app" />
-                <span>MessageManager.app</span>
-              </label>
-            </fieldset>
-            <p id="settings-cache-meta" class="settings-help"></p>
-            <div class="access-checklist-scroll settings-checklist-scroll">
-              <ul id="settings-access-checklist" class="access-checklist"></ul>
-            </div>
-            <p id="settings-access-detail" class="settings-help"></p>
-            <div class="permissions-actions">
-              <button type="button" id="settings-sync-cache-btn" class="primary">Sync cache</button>
-              <button type="button" id="settings-recheck-access-btn" class="settings-cancel">Recheck access</button>
-            </div>
-            <div class="permissions-actions">
-              <button type="button" id="settings-run-grant-btn" class="settings-cancel">Open FDA helper</button>
-            </div>
-            <div class="permissions-actions">
-              <button type="button" id="settings-copy-bundle-btn" class="settings-cancel">Copy support bundle</button>
-              <button type="button" id="settings-export-bundle-btn" class="settings-cancel">Export support bundle</button>
-            </div>
-          </section>
-
-          <section class="settings-section">
-            <h3>Updates</h3>
-            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.21</strong></p>
-            <p id="update-status" class="settings-help">Checking for updates…</p>
-            <div class="permissions-actions">
-              <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
-              <button type="button" id="install-update-btn" class="primary hidden">Download &amp; install update</button>
-            </div>
-          </section>
-
-          <section class="settings-section">
-            <h3>Apple Intelligence</h3>
-            <div class="ai-toggle-row">
-              <div>
-                <p class="ai-toggle-title">Use Apple Intelligence for summaries</p>
-                <p class="ai-toggle-sub">Requires Apple Silicon and a Summarize shortcut</p>
+          <div id="settings-tab-user" class="settings-tab-panel" data-settings-panel="user" role="tabpanel">
+            <section class="settings-section">
+              <h3>Updates</h3>
+              <p class="settings-help">Current version: <strong id="settings-current-version">1.0.22</strong></p>
+              <p id="update-status" class="settings-help">Checking for updates…</p>
+              <div class="permissions-actions">
+                <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
+                <button type="button" id="install-update-btn" class="primary hidden">Download &amp; install update</button>
               </div>
-              <label class="switch">
-                <input id="ai-toggle" type="checkbox" />
-                <span class="slider" aria-hidden="true"></span>
-                <span class="sr-only">Enable Apple Intelligence summaries</span>
-              </label>
-            </div>
-            <p id="ai-status" class="ai-status">Checking this Mac…</p>
-            <label class="settings-field">
-              <span>Shortcut name</span>
-              <input id="setting-ai-shortcut" type="text" maxlength="200" />
-            </label>
-          </section>
+            </section>
 
-          <section class="settings-section">
-            <h3>Startup &amp; conversation loading</h3>
-            <label class="settings-check">
-              <input id="setting-auto-load" type="checkbox" />
-              <span>Auto-load conversations when the app opens</span>
-            </label>
-            <div class="load-mode-toggle settings-mode-toggle" role="group" aria-label="Default load mode">
-              <button type="button" class="load-mode-btn" id="setting-mode-count" data-setting-load-mode="count">By count</button>
-              <button type="button" class="load-mode-btn" id="setting-mode-activity" data-setting-load-mode="activity">By activity</button>
-            </div>
-            <div id="setting-count-fields">
+            <section class="settings-section">
+              <h3>Apple Intelligence</h3>
+              <div class="ai-toggle-row">
+                <div>
+                  <p class="ai-toggle-title">Use Apple Intelligence for summaries</p>
+                  <p class="ai-toggle-sub">Requires Apple Silicon and a Summarize shortcut</p>
+                </div>
+                <label class="switch">
+                  <input id="ai-toggle" type="checkbox" />
+                  <span class="slider" aria-hidden="true"></span>
+                  <span class="sr-only">Enable Apple Intelligence summaries</span>
+                </label>
+              </div>
+              <p id="ai-status" class="ai-status">Checking this Mac…</p>
               <label class="settings-field">
-                <span>Default conversations to load</span>
-                <input id="setting-thread-limit" type="number" min="5" max="100000" step="1" />
+                <span>Shortcut name</span>
+                <input id="setting-ai-shortcut" type="text" maxlength="200" />
               </label>
-            </div>
-            <div id="setting-activity-fields" class="hidden">
-              <div class="load-activity-row">
+            </section>
+
+            <section class="settings-section">
+              <h3>Startup &amp; conversation loading</h3>
+              <label class="settings-check">
+                <input id="setting-auto-load" type="checkbox" />
+                <span>Auto-load conversations when the app opens</span>
+              </label>
+              <div class="load-mode-toggle settings-mode-toggle" role="group" aria-label="Default load mode">
+                <button type="button" class="load-mode-btn" id="setting-mode-count" data-setting-load-mode="count">By count</button>
+                <button type="button" class="load-mode-btn" id="setting-mode-activity" data-setting-load-mode="activity">By activity</button>
+              </div>
+              <div id="setting-count-fields">
                 <label class="settings-field">
-                  <span>Active within the last</span>
-                  <input id="setting-activity-value" type="number" min="1" max="100" step="1" />
-                </label>
-                <label class="settings-field">
-                  <span>Unit</span>
-                  <select id="setting-activity-unit">
-                    <option value="months">Months</option>
-                    <option value="years">Years</option>
-                  </select>
+                  <span>Default conversations to load</span>
+                  <input id="setting-thread-limit" type="number" min="5" max="100000" step="1" />
                 </label>
               </div>
+              <div id="setting-activity-fields" class="hidden">
+                <div class="load-activity-row">
+                  <label class="settings-field">
+                    <span>Active within the last</span>
+                    <input id="setting-activity-value" type="number" min="1" max="100" step="1" />
+                  </label>
+                  <label class="settings-field">
+                    <span>Unit</span>
+                    <select id="setting-activity-unit">
+                      <option value="months">Months</option>
+                      <option value="years">Years</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Messages</h3>
+              <label class="settings-field">
+                <span>Default recent messages to show</span>
+                <input id="setting-message-limit" type="number" min="1" max="500" step="1" />
+              </label>
+              <label class="settings-field">
+                <span>Default summary days</span>
+                <input id="setting-summary-days" type="number" min="1" max="3650" step="1" />
+              </label>
+            </section>
+
+            <section class="settings-section">
+              <h3>Categories</h3>
+              <p class="settings-help">Choose which categories you can assign and filter by. Add your own below.</p>
+              <div id="setting-enabled-categories" class="settings-checks"></div>
+              <div class="custom-cat-add">
+                <input id="setting-new-category" type="text" maxlength="60" placeholder="New category name" />
+                <button type="button" id="setting-add-category" class="settings-cancel">Add</button>
+              </div>
+              <div id="setting-custom-categories" class="custom-cat-list"></div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Hide from default list</h3>
+              <p class="settings-help">
+                These stay out of the All view after loading, but you can still open their filter chip to see and change them.
+              </p>
+              <div id="setting-hidden-categories" class="settings-checks"></div>
+            </section>
+
+            <div class="settings-actions">
+              <button type="button" class="settings-cancel" data-close-settings>Cancel</button>
+              <button type="submit" class="primary">Save settings</button>
             </div>
-          </section>
+          </div>
 
-          <section class="settings-section">
-            <h3>Messages</h3>
-            <label class="settings-field">
-              <span>Default recent messages to show</span>
-              <input id="setting-message-limit" type="number" min="1" max="500" step="1" />
-            </label>
-            <label class="settings-field">
-              <span>Default summary days</span>
-              <input id="setting-summary-days" type="number" min="1" max="3650" step="1" />
-            </label>
-          </section>
+          <div id="settings-tab-cache" class="settings-tab-panel hidden" data-settings-panel="cache" role="tabpanel">
+            <section class="settings-section">
+              <h3>Messages cache</h3>
+              <p class="settings-help">
+                MessageManager reads a local copy of your Messages database. On newer macOS,
+                sync with <strong>Python.app</strong> Full Disk Access is usually most reliable.
+              </p>
+              <p id="settings-cache-meta" class="settings-help"></p>
 
-          <section class="settings-section">
-            <h3>Categories</h3>
-            <p class="settings-help">Choose which categories you can assign and filter by. Add your own below.</p>
-            <div id="setting-enabled-categories" class="settings-checks"></div>
-            <div class="custom-cat-add">
-              <input id="setting-new-category" type="text" maxlength="60" placeholder="New category name" />
-              <button type="button" id="setting-add-category" class="settings-cancel">Add</button>
-            </div>
-            <div id="setting-custom-categories" class="custom-cat-list"></div>
-          </section>
+              <fieldset class="settings-fieldset">
+                <legend>Sync method</legend>
+                <label class="settings-check">
+                  <input type="radio" name="cache-sync-method" value="python" id="setting-sync-python" checked />
+                  <span>Python.app (recommended)</span>
+                </label>
+                <label class="settings-check">
+                  <input type="radio" name="cache-sync-method" value="terminal" id="setting-sync-terminal" />
+                  <span>Terminal.app</span>
+                </label>
+                <label class="settings-check">
+                  <input type="radio" name="cache-sync-method" value="app" id="setting-sync-app" />
+                  <span>MessageManager.app</span>
+                </label>
+              </fieldset>
 
-          <section class="settings-section">
-            <h3>Hide from default list</h3>
-            <p class="settings-help">
-              These stay out of the All view after loading, but you can still open their filter chip to see and change them.
-            </p>
-            <div id="setting-hidden-categories" class="settings-checks"></div>
-          </section>
+              <div class="permissions-actions">
+                <button type="button" id="settings-sync-cache-btn" class="primary">Sync cache now</button>
+              </div>
 
-          <div class="settings-actions">
-            <button type="button" class="settings-cancel" data-close-settings>Cancel</button>
-            <button type="submit" class="primary">Save settings</button>
+              <div id="cache-sync-alert" class="cache-sync-alert hidden" role="alert" aria-live="polite"></div>
+              <p id="cache-sync-progress" class="settings-help"></p>
+            </section>
+
+            <section class="settings-section">
+              <h3>Full Disk Access checks</h3>
+              <p class="settings-help">
+                Tests whether each app can read <code>~/Library/Messages/chat.db</code>.
+                Terminal test briefly opens a Terminal window.
+              </p>
+              <ul id="fda-probe-list" class="fda-probe-list" aria-label="Full Disk Access probes"></ul>
+              <div class="permissions-actions">
+                <button type="button" id="settings-fda-probe-btn" class="settings-cancel">Test Full Disk Access</button>
+                <button type="button" id="settings-fda-probe-quick-btn" class="settings-cancel">Test without Terminal</button>
+              </div>
+            </section>
+          </div>
+
+          <div id="settings-tab-troubleshoot" class="settings-tab-panel hidden" data-settings-panel="troubleshoot" role="tabpanel">
+            <section class="settings-section">
+              <h3>Access checklist</h3>
+              <p class="settings-help">Live diagnostics for Messages access on this Mac.</p>
+              <div class="access-checklist-scroll settings-checklist-scroll">
+                <ul id="settings-access-checklist" class="access-checklist"></ul>
+              </div>
+              <p id="settings-access-detail" class="settings-help"></p>
+              <div class="permissions-actions">
+                <button type="button" id="settings-recheck-access-btn" class="settings-cancel">Recheck access</button>
+                <button type="button" id="settings-run-grant-btn" class="settings-cancel">Open FDA helper</button>
+                <button type="button" id="open-privacy-btn-settings" class="settings-cancel">Privacy Settings</button>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Support bundle</h3>
+              <p class="settings-help">Copy or export logs and diagnostics to send for help.</p>
+              <div class="permissions-actions">
+                <button type="button" id="settings-copy-bundle-btn" class="settings-cancel">Copy support bundle</button>
+                <button type="button" id="settings-export-bundle-btn" class="primary">Export support bundle</button>
+                <button type="button" id="settings-open-logs-btn" class="settings-cancel">Open Logs</button>
+              </div>
+            </section>
           </div>
         </form>
       </div>
     </div>
 
-    <script src="/static/app.js?v=20260718b"></script>
+    <script src="/static/app.js?v=20260718c"></script>
   </body>
 </html>
