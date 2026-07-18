@@ -107,6 +107,7 @@ class SettingsUpdate(BaseModel):
     thread_activity_unit: Optional[Literal["months", "years"]] = None
     auto_load_on_start: Optional[bool] = None
     default_message_limit: Optional[int] = Field(default=None, ge=1, le=500)
+    cache_sync_method: Optional[Literal["python", "terminal"]] = None
     custom_categories: Optional[list[CustomCategory]] = None
     enabled_categories: Optional[list[str]] = None
     hidden_from_default: Optional[list[str]] = None

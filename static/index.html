@@ -12,7 +12,7 @@
     />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
-    <link rel="stylesheet" href="/static/styles.css?v=20260718f" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260718g" />
   </head>
   <body>
     <div class="app">
@@ -20,7 +20,7 @@
         <header class="brand">
           <div class="brand-row">
             <div>
-              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.25</span></span></h1>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.26</span></span></h1>
             </div>
             <button
               type="button"
@@ -261,7 +261,7 @@
           <div id="settings-tab-user" class="settings-tab-panel" data-settings-panel="user" role="tabpanel">
             <section class="settings-section">
               <h3>Updates</h3>
-              <p class="settings-help">Current version: <strong id="settings-current-version">1.0.25</strong></p>
+              <p class="settings-help">Current version: <strong id="settings-current-version">1.0.26</strong></p>
               <p id="update-status" class="settings-help">Checking for updates…</p>
               <div class="permissions-actions">
                 <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
@@ -364,20 +364,15 @@
               <h3>Messages cache</h3>
               <p class="settings-help">
                 MessageManager reads a local copy of your Messages database.
-                Enable Full Disk Access for <strong>Python.app</strong> (and MessageManager),
-                then sync — no Terminal window required.
+                Enable Full Disk Access for <strong>Python.app</strong>, then sync.
               </p>
-              <p id="settings-cache-meta" class="settings-help"></p>
+              <div id="settings-cache-meta" class="cache-meta" aria-live="polite"></div>
 
               <fieldset class="settings-fieldset">
                 <legend>Sync method</legend>
                 <label class="settings-check">
                   <input type="radio" name="cache-sync-method" value="python" id="setting-sync-python" checked />
                   <span>Python.app (recommended)</span>
-                </label>
-                <label class="settings-check">
-                  <input type="radio" name="cache-sync-method" value="app" id="setting-sync-app" />
-                  <span>MessageManager.app</span>
                 </label>
                 <label class="settings-check">
                   <input type="radio" name="cache-sync-method" value="terminal" id="setting-sync-terminal" />
@@ -401,9 +396,9 @@
               </p>
               <ol id="fda-steps" class="fda-steps settings-help">
                 <li>Prepare FDA (opens settings + reveals the apps)</li>
-                <li>Turn ON <strong>MessageManager</strong> and <strong>Python</strong> (python.org Python.app)</li>
+                <li>Turn ON <strong>Python</strong> (python.org Python.app) — required for Sync cache</li>
+                <li>Optionally turn ON <strong>MessageManager</strong> for launch-time cache copy</li>
                 <li>Retest, then Sync cache with Python.app</li>
-                <li>Quit MessageManager fully and reopen</li>
               </ol>
               <ul id="fda-probe-list" class="fda-probe-list" aria-label="Full Disk Access probes"></ul>
               <p id="fda-guidance" class="settings-help"></p>
@@ -444,6 +439,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=20260718f"></script>
+    <script src="/static/app.js?v=20260718g"></script>
   </body>
 </html>

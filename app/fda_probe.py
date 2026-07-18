@@ -217,13 +217,22 @@ def probe_app() -> dict[str, Any]:
     elif completed.returncode == 2:
         detail = "Permission denied"
 
+    note = detail
+    if ok:
+        note = f"{detail} — used for launch-time cache copy"
+    else:
+        note = (
+            f"{detail}. Launch-time cache copy needs this; "
+            "manual Sync uses Python.app instead."
+        )
     return _write_probe(
         "app",
         {
-            "label": "MessageManager.app",
+            "label": "MessageManager.app (launch copy)",
             "ok": ok,
-            "detail": detail,
+            "detail": note,
             "path": str(binary.parent.parent.parent),
+            "informational": True,
         },
     )
 
@@ -325,8 +334,8 @@ def probe_all(*, include_terminal: bool = True) -> dict[str, Any]:
     if include_terminal:
         targets.append(probe_terminal())
 
-    # Prefer Python.app, then MessageManager.app; Terminal only as last resort.
-    preferred_order = ("python", "app", "terminal")
+    # Sync methods only: Python.app preferred; Terminal as workaround.
+    preferred_order = ("python", "terminal")
     recommended = next(
         (
             tid
@@ -349,17 +358,13 @@ def probe_all(*, include_terminal: bool = True) -> dict[str, Any]:
             "python_ok": python_ok,
             "app_ok": app_ok,
             "recommended": recommended,
-            "clean_path_ready": python_ok or app_ok,
+            "clean_path_ready": python_ok,
             "guidance": (
                 "Python.app can read Messages — use Sync cache (Python.app)."
                 if python_ok
                 else (
-                    "MessageManager.app can read Messages — Quit, reopen, or Sync via MessageManager.app."
-                    if app_ok
-                    else (
-                        "Enable Full Disk Access for MessageManager and Python.app "
-                        "(Prepare FDA), then Retest. Avoid relying on Terminal."
-                    )
+                    "Enable Full Disk Access for Python.app (Prepare FDA), then Retest "
+                    "and Sync cache. Terminal is a workaround only."
                 )
             ),
         },

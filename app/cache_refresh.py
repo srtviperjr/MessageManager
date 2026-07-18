@@ -44,6 +44,69 @@ def progress_file_path() -> Path:
     return log_dir() / "cache-refresh.json"
 
 
+def last_sync_meta_path() -> Path:
+    return log_dir() / "cache-last-sync.json"
+
+
+def _write_last_sync_meta(result: dict[str, Any]) -> None:
+    """Persist when/how the cache was last successfully synced."""
+    payload = {
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+        "method": result.get("method") or "unknown",
+        "messages_bytes": result.get("messages_bytes"),
+        "messages_cache": result.get("messages_cache"),
+        "python_app": result.get("python_app"),
+    }
+    try:
+        path = last_sync_meta_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_last_sync_meta() -> Optional[dict[str, Any]]:
+    path = last_sync_meta_path()
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _file_freshness(path: Path) -> dict[str, Any]:
+    """Size / mtime / age for a cache or live DB file."""
+    info: dict[str, Any] = {
+        "exists": False,
+        "path": str(path),
+        "bytes": None,
+        "mtime": None,
+        "mtime_iso": None,
+        "age_seconds": None,
+    }
+    try:
+        if not path.is_file():
+            return info
+        st = path.stat()
+        age = max(0.0, time.time() - st.st_mtime)
+        info.update(
+            {
+                "exists": True,
+                "bytes": st.st_size,
+                "mtime": st.st_mtime,
+                "mtime_iso": datetime.fromtimestamp(
+                    st.st_mtime, tz=timezone.utc
+                ).isoformat(),
+                "age_seconds": int(age),
+            }
+        )
+    except OSError as exc:
+        info["error"] = str(exc)
+    return info
+
+
 def _report(
     progress: Optional[ProgressFn],
     message: str,
@@ -586,6 +649,7 @@ def _poll_progress_file(
     result["ok"] = True
     result["messages_cache"] = str(messages_cache_dir())
     result["messages_bytes"] = cached.stat().st_size
+    _write_last_sync_meta(result)
     _report(progress, "Cache sync complete", 100, done=True)
     return result
 
@@ -749,8 +813,7 @@ def refresh_caches(
 
     Methods:
       - python: Framework Python.app (default; stable FDA on Tahoe)
-      - terminal: Terminal.app FDA
-      - app: MessageManager --refresh-cache
+      - terminal: Terminal.app FDA (workaround)
     """
     from app import settings as settings_store
 
@@ -759,19 +822,16 @@ def refresh_caches(
     try:
         settings = settings_store.get_settings()
         chosen = (method or settings.get("cache_sync_method") or "python").lower()
-        if chosen not in {"python", "terminal", "app"}:
+        if chosen == "app":
+            chosen = "python"
+        if chosen not in {"python", "terminal"}:
             chosen = "python"
 
-        if chosen == "python":
-            _report(progress, "Syncing cache with Python.app…", 1)
-            return refresh_caches_via_python_app(progress)
         if chosen == "terminal":
             _report(progress, "Syncing cache with Terminal…", 1)
             return refresh_caches_via_terminal(progress)
-        if chosen == "app":
-            _report(progress, "Syncing cache with MessageManager.app…", 1)
-            return refresh_caches_native(progress)
 
+        _report(progress, "Syncing cache with Python.app…", 1)
         return refresh_caches_via_python_app(progress)
     finally:
         _refresh_lock.release()
@@ -783,13 +843,67 @@ def cache_status() -> dict[str, Any]:
 
     msg = messages_cache_dir() / "chat.db"
     live = Path.home() / "Library" / "Messages" / "chat.db"
+    contacts = contacts_cache_dir() / "AddressBook-v22.abcddb"
     exe, app = _framework_python_launcher()
+    cache_info = _file_freshness(msg)
+    live_info = _file_freshness(live)
+    contacts_info = _file_freshness(contacts)
+    last_sync = _read_last_sync_meta()
+
+    # Prefer explicit last-sync stamp; fall back to cache file mtime.
+    last_synced_at = None
+    last_sync_method = None
+    last_sync_age_seconds = None
+    if last_sync and last_sync.get("synced_at"):
+        last_synced_at = str(last_sync["synced_at"])
+        last_sync_method = last_sync.get("method")
+        try:
+            synced = datetime.fromisoformat(last_synced_at.replace("Z", "+00:00"))
+            last_sync_age_seconds = int(
+                max(0.0, (datetime.now(timezone.utc) - synced).total_seconds())
+            )
+        except ValueError:
+            last_sync_age_seconds = cache_info.get("age_seconds")
+    elif cache_info.get("exists"):
+        last_synced_at = cache_info.get("mtime_iso")
+        last_sync_age_seconds = cache_info.get("age_seconds")
+        last_sync_method = "unknown"
+
+    live_newer = False
+    if (
+        cache_info.get("mtime") is not None
+        and live_info.get("mtime") is not None
+        and live_info["mtime"] > cache_info["mtime"] + 2
+    ):
+        live_newer = True
+
     info: dict[str, Any] = {
         "messages_cache_dir": str(messages_cache_dir()),
-        "messages_cache_exists": msg.is_file(),
-        "messages_cache_bytes": msg.stat().st_size if msg.is_file() else None,
-        "live_db_exists": False,
-        "live_db_bytes": None,
+        "messages_cache_exists": bool(cache_info.get("exists")),
+        "messages_cache_bytes": cache_info.get("bytes"),
+        "messages_cache_mtime": cache_info.get("mtime"),
+        "messages_cache_mtime_iso": cache_info.get("mtime_iso"),
+        "messages_cache_age_seconds": cache_info.get("age_seconds"),
+        "contacts_cache_exists": bool(contacts_info.get("exists")),
+        "contacts_cache_bytes": contacts_info.get("bytes"),
+        "contacts_cache_age_seconds": contacts_info.get("age_seconds"),
+        "live_db_exists": bool(live_info.get("exists")),
+        "live_db_bytes": live_info.get("bytes"),
+        "live_db_mtime_iso": live_info.get("mtime_iso"),
+        "live_db_age_seconds": live_info.get("age_seconds"),
+        "live_db_newer_than_cache": live_newer,
+        "last_synced_at": last_synced_at,
+        "last_sync_method": last_sync_method,
+        "last_sync_age_seconds": last_sync_age_seconds,
+        "refresh_policy": {
+            "scheduled": False,
+            "on_manual_sync": True,
+            "on_app_launch": True,
+            "summary": (
+                "Not on a timer. Updated when you press Sync cache, and also "
+                "attempted on each app launch when MessageManager.app has Full Disk Access."
+            ),
+        },
         "cache_sync_method": settings_store.get_settings().get("cache_sync_method"),
         "terminal_sync": terminal_sync_paths(),
         "python_sync": {
@@ -798,10 +912,6 @@ def cache_status() -> dict[str, Any]:
             "fda_target": runtime_status().get("fda_target"),
         },
     }
-    try:
-        if live.is_file():
-            info["live_db_exists"] = True
-            info["live_db_bytes"] = live.stat().st_size
-    except OSError as exc:
-        info["live_db_error"] = str(exc)
+    if live_info.get("error"):
+        info["live_db_error"] = live_info["error"]
     return info
