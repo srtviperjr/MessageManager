@@ -224,11 +224,14 @@ def build_diagnostics() -> dict[str, Any]:
     next_steps: list[str] = []
     if not messages.get("readable"):
         next_steps.append(
-            "Run the grant script or open Privacy Settings, enable MessageManager.app, quit, reopen."
+            "On macOS Tahoe: enable Full Disk Access for Terminal.app, then use Sync via Terminal."
+        )
+        next_steps.append(
+            "Also try MessageManager.app FDA (toggle off/on), quit, and reopen."
         )
         if runtime.get("fda_target"):
             next_steps.append(
-                f"Also enable: {_short_path(runtime.get('fda_target'))}."
+                f"Optional: enable {_short_path(runtime.get('fda_target'))} for Python fallback."
             )
         if not probes["messages_live_db"].get("exists") and not probes[
             "messages_cache_db"

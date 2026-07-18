@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260717z" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260718a" />
   </head>
   <body>
     <div class="app">
@@ -18,7 +18,7 @@
         <header class="brand">
           <div class="brand-row">
             <div>
-              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.19</span></span></h1>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.20</span></span></h1>
             </div>
             <button
               type="button"
@@ -99,16 +99,19 @@
         <div id="permissions-card" class="permissions-card hidden">
           <p class="permissions-title">Permissions needed</p>
           <p id="permissions-text" class="permissions-text">
-            Grant Full Disk Access, then quit and reopen.
+            On newer macOS, enable Full Disk Access for Terminal, then Sync via Terminal.
           </p>
           <div class="access-checklist-scroll">
             <ul id="access-checklist" class="access-checklist" aria-label="Access checklist"></ul>
           </div>
           <div class="permissions-actions">
-            <button type="button" id="refresh-cache-btn" class="primary load-btn">Refresh cache</button>
+            <button type="button" id="sync-terminal-btn" class="primary load-btn">Sync via Terminal</button>
+            <button type="button" id="refresh-cache-btn" class="settings-cancel">Refresh cache</button>
+            <button type="button" id="recheck-permissions-btn" class="settings-cancel">Recheck</button>
+          </div>
+          <div class="permissions-actions">
             <button type="button" id="run-grant-script-btn" class="settings-cancel">Grant script</button>
             <button type="button" id="open-privacy-btn" class="settings-cancel">Privacy Settings</button>
-            <button type="button" id="recheck-permissions-btn" class="settings-cancel">Recheck</button>
           </div>
           <p id="cache-refresh-status" class="permissions-text hidden" aria-live="polite"></p>
           <div class="permissions-actions">
@@ -253,8 +256,8 @@
           <section class="settings-section">
             <h3>Access &amp; troubleshooting</h3>
             <p class="settings-help">
-              Grant Full Disk Access to <strong>MessageManager</strong>, then use
-              <strong>Refresh cache</strong> to re-copy Messages (large databases can take several minutes).
+              On macOS Tahoe, grant Full Disk Access to <strong>Terminal</strong> (not only MessageManager),
+              then use <strong>Sync via Terminal</strong>. Large Messages databases can take several minutes.
             </p>
             <p id="settings-cache-meta" class="settings-help"></p>
             <div class="access-checklist-scroll settings-checklist-scroll">
@@ -262,9 +265,12 @@
             </div>
             <p id="settings-access-detail" class="settings-help"></p>
             <div class="permissions-actions">
-              <button type="button" id="settings-refresh-cache-btn" class="primary">Refresh cache</button>
-              <button type="button" id="settings-run-grant-btn" class="settings-cancel">Run grant script</button>
+              <button type="button" id="settings-sync-terminal-btn" class="primary">Sync via Terminal</button>
+              <button type="button" id="settings-refresh-cache-btn" class="settings-cancel">Refresh cache</button>
               <button type="button" id="settings-recheck-access-btn" class="settings-cancel">Recheck access</button>
+            </div>
+            <div class="permissions-actions">
+              <button type="button" id="settings-run-grant-btn" class="settings-cancel">Run grant script</button>
             </div>
             <div class="permissions-actions">
               <button type="button" id="settings-copy-bundle-btn" class="settings-cancel">Copy support bundle</button>
@@ -274,7 +280,7 @@
 
           <section class="settings-section">
             <h3>Updates</h3>
-            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.19</strong></p>
+            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.20</strong></p>
             <p id="update-status" class="settings-help">Checking for updates…</p>
             <div class="permissions-actions">
               <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
@@ -374,6 +380,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=20260717z"></script>
+    <script src="/static/app.js?v=20260718a"></script>
   </body>
 </html>

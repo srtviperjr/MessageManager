@@ -116,12 +116,14 @@ const els = {
   openAccessLogsBtn: document.getElementById("open-access-logs-btn"),
   openPrivacyBtn: document.getElementById("open-privacy-btn"),
   runGrantScriptBtn: document.getElementById("run-grant-script-btn"),
+  syncTerminalBtn: document.getElementById("sync-terminal-btn"),
   refreshCacheBtn: document.getElementById("refresh-cache-btn"),
   cacheRefreshStatus: document.getElementById("cache-refresh-status"),
   recheckPermissionsBtn: document.getElementById("recheck-permissions-btn"),
   settingsAccessChecklist: document.getElementById("settings-access-checklist"),
   settingsAccessDetail: document.getElementById("settings-access-detail"),
   settingsCacheMeta: document.getElementById("settings-cache-meta"),
+  settingsSyncTerminalBtn: document.getElementById("settings-sync-terminal-btn"),
   settingsRefreshCacheBtn: document.getElementById("settings-refresh-cache-btn"),
   settingsRunGrantBtn: document.getElementById("settings-run-grant-btn"),
   settingsRecheckAccessBtn: document.getElementById("settings-recheck-access-btn"),
@@ -138,7 +140,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.19";
+state.appVersion = "1.0.20";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
@@ -1204,13 +1206,117 @@ async function refreshCacheMeta() {
   }
 }
 
+async function afterCacheReady(result) {
+  const size = formatBytes(result?.messages_bytes);
+  clearStatus(
+    size
+      ? `Cache ready (${size}). Press Recheck or Start loading.`
+      : "Cache ready. Press Recheck or Start loading."
+  );
+  if (els.cacheRefreshStatus) {
+    els.cacheRefreshStatus.textContent = size ? `Cache ready · ${size}` : "Cache ready";
+  }
+  await refreshCacheMeta();
+  await refreshDiagnostics({ quiet: true });
+  try {
+    const health = await api("/api/health");
+    renderPermissions(health.permissions, health.messages, health.contacts);
+    if (health.messages?.readable) {
+      els.accessBanner?.classList.add("hidden");
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function syncCacheViaTerminal() {
+  if (state.cacheRefreshing) {
+    clearStatus("Cache sync already running");
+    return null;
+  }
+  state.cacheRefreshing = true;
+  const buttons = [
+    els.syncTerminalBtn,
+    els.settingsSyncTerminalBtn,
+    els.refreshCacheBtn,
+    els.settingsRefreshCacheBtn,
+  ].filter(Boolean);
+  buttons.forEach((btn) => {
+    btn.disabled = true;
+  });
+  if (els.cacheRefreshStatus) {
+    els.cacheRefreshStatus.classList.remove("hidden");
+    els.cacheRefreshStatus.textContent =
+      "Opening Terminal… enable FDA for Terminal if prompted";
+  }
+  try {
+    // Start Terminal helper, then watch the same progress stream/file via refresh SSE
+    // which falls back to Terminal sync when the app copy fails.
+    await api("/api/cache/sync-via-terminal", { method: "POST" });
+    clearStatus("Terminal sync started — also watch the Terminal window");
+    const started = Date.now();
+    while (Date.now() - started < 60 * 60 * 1000) {
+      await new Promise((r) => setTimeout(r, 1000));
+      let prog = null;
+      try {
+        prog = await api("/api/cache/progress");
+      } catch {
+        prog = null;
+      }
+      if (prog?.message) {
+        setStatus(prog.message, prog.percent, { busy: !prog.done });
+        if (els.cacheRefreshStatus) {
+          els.cacheRefreshStatus.textContent =
+            prog.percent != null
+              ? `${prog.message} (${prog.percent}%)`
+              : prog.message;
+        }
+      }
+      if (prog?.done && prog?.error) {
+        throw new Error(prog.error);
+      }
+      if (prog?.done && prog?.ok !== false) {
+        const info = await api("/api/cache/status");
+        await afterCacheReady({ messages_bytes: info.messages_cache_bytes });
+        return info;
+      }
+      try {
+        const info = await api("/api/cache/status");
+        if (info.messages_cache_exists && info.messages_cache_bytes > 0 && prog?.done) {
+          await afterCacheReady({ messages_bytes: info.messages_cache_bytes });
+          return info;
+        }
+      } catch {
+        // keep waiting
+      }
+    }
+    throw new Error("Timed out waiting for Terminal sync");
+  } catch (err) {
+    clearStatus(err.message || "Terminal sync failed");
+    if (els.cacheRefreshStatus) {
+      els.cacheRefreshStatus.textContent = err.message || "Terminal sync failed";
+    }
+    return null;
+  } finally {
+    state.cacheRefreshing = false;
+    buttons.forEach((btn) => {
+      btn.disabled = false;
+    });
+  }
+}
+
 async function refreshMessagesCache() {
   if (state.cacheRefreshing) {
     clearStatus("Cache refresh already running");
     return null;
   }
   state.cacheRefreshing = true;
-  const buttons = [els.refreshCacheBtn, els.settingsRefreshCacheBtn].filter(Boolean);
+  const buttons = [
+    els.refreshCacheBtn,
+    els.settingsRefreshCacheBtn,
+    els.syncTerminalBtn,
+    els.settingsSyncTerminalBtn,
+  ].filter(Boolean);
   buttons.forEach((btn) => {
     btn.disabled = true;
   });
@@ -1228,31 +1334,10 @@ async function refreshMessagesCache() {
         }
       },
     });
-    const size = formatBytes(result.messages_bytes);
-    clearStatus(
-      size
-        ? `Cache refreshed (${size}). Press Recheck or Start loading.`
-        : "Cache refreshed. Press Recheck or Start loading."
-    );
-    if (els.cacheRefreshStatus) {
-      els.cacheRefreshStatus.textContent = size
-        ? `Cache ready · ${size}`
-        : "Cache ready";
-    }
-    await refreshCacheMeta();
-    await refreshDiagnostics({ quiet: true });
-    try {
-      const health = await api("/api/health");
-      renderPermissions(health.permissions, health.messages, health.contacts);
-      if (health.messages?.readable) {
-        els.accessBanner?.classList.add("hidden");
-      }
-    } catch {
-      // ignore
-    }
+    await afterCacheReady(result);
     return result;
   } catch (err) {
-    clearStatus(err.message || "Cache refresh failed");
+    clearStatus(err.message || "Cache refresh failed — try Sync via Terminal");
     if (els.cacheRefreshStatus) {
       els.cacheRefreshStatus.textContent = err.message || "Cache refresh failed";
     }
@@ -1899,6 +1984,8 @@ function bindEvents() {
     }
   });
   els.runGrantScriptBtn?.addEventListener("click", () => runGrantScript());
+  els.syncTerminalBtn?.addEventListener("click", () => syncCacheViaTerminal());
+  els.settingsSyncTerminalBtn?.addEventListener("click", () => syncCacheViaTerminal());
   els.refreshCacheBtn?.addEventListener("click", () => refreshMessagesCache());
   els.settingsRefreshCacheBtn?.addEventListener("click", () => refreshMessagesCache());
   els.recheckPermissionsBtn?.addEventListener("click", async () => {
@@ -1992,7 +2079,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.19";
+    state.appVersion = health.version || state.appVersion || "1.0.20";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

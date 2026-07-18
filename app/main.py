@@ -39,7 +39,12 @@ from app.diagnostics import (
     export_support_bundle,
     format_support_bundle,
 )
-from app.cache_refresh import cache_status, refresh_caches
+from app.cache_refresh import (
+    cache_status,
+    open_terminal_sync,
+    progress_file_path,
+    refresh_caches,
+)
 from app.permissions_helper import grant_script_paths, run_grant_script
 from app.logs_api import list_log_files, read_log_file
 from app.migrations import run_migrations
@@ -383,6 +388,35 @@ def api_run_grant_script() -> dict:
 @app.get("/api/cache/status")
 def api_cache_status() -> dict:
     return cache_status()
+
+
+@app.get("/api/cache/progress")
+def api_cache_progress() -> dict:
+    path = progress_file_path()
+    if not path.is_file():
+        return {"active": False}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"active": False}
+    data["active"] = not bool(data.get("done"))
+    return data
+
+
+@app.post("/api/cache/sync-via-terminal")
+def api_cache_sync_via_terminal() -> dict:
+    """
+    Open Terminal.app to copy Messages into the cache using Terminal's FDA.
+
+    On macOS Tahoe, MessageManager.app FDA often fails (exit 2) while Terminal FDA
+    still works — matching the earlier “run from Terminal” setup on that Mac.
+    """
+    try:
+        return open_terminal_sync()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/api/cache/refresh")

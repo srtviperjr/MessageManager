@@ -388,28 +388,222 @@ def refresh_caches_native(progress: Optional[ProgressFn] = None) -> dict[str, An
     return result
 
 
+def _scripts_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "scripts" / "macos"
+
+
+def terminal_sync_paths() -> dict[str, Optional[str]]:
+    base = _scripts_dir()
+    py = base / "sync-messages-cache.py"
+    command = base / "sync-messages-cache.command"
+    return {
+        "script": str(py) if py.is_file() else None,
+        "command": str(command) if command.is_file() else None,
+        "dir": str(base) if base.is_dir() else None,
+    }
+
+
+def _install_terminal_sync_copy() -> Path:
+    """
+    Copy the Terminal sync helper into Application Support so it can be opened
+    even if the app bundle path is awkward, and so FDA guidance is stable.
+    """
+    paths = terminal_sync_paths()
+    if not paths.get("script"):
+        raise FileNotFoundError("sync-messages-cache.py missing from app bundle")
+    dest_dir = _app_support() / "bin"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_py = dest_dir / "sync-messages-cache.py"
+    dest_cmd = dest_dir / "sync-messages-cache.command"
+    shutil.copy2(paths["script"], dest_py)
+    dest_cmd.write_text(
+        "#!/bin/bash\n"
+        "export KEEP_TERMINAL_OPEN=1\n"
+        f'DIR="{dest_dir}"\n'
+        'cd "${DIR}"\n'
+        'echo "If copy fails: enable Full Disk Access for Terminal.app, quit Terminal, reopen."\n'
+        'exec /usr/bin/env python3 "${DIR}/sync-messages-cache.py"\n',
+        encoding="utf-8",
+    )
+    try:
+        dest_py.chmod(dest_py.stat().st_mode | 0o111)
+        dest_cmd.chmod(dest_cmd.stat().st_mode | 0o111)
+    except OSError:
+        pass
+    return dest_cmd
+
+
+def _poll_progress_file(
+    progress: Optional[ProgressFn],
+    *,
+    proc: Optional[subprocess.Popen] = None,
+    timeout_s: float = 60 * 60,
+) -> dict[str, Any]:
+    status_path = progress_file_path()
+    result: Optional[dict[str, Any]] = None
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if status_path.is_file():
+            try:
+                data = json.loads(status_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            msg = data.get("message") or "Copying…"
+            pct = int(data.get("percent") or 0)
+            if progress:
+                progress(msg, pct)
+            if data.get("error") and data.get("done"):
+                raise RuntimeError(data["error"])
+            if data.get("done"):
+                result = data.get("result") or data
+                break
+        if proc is not None and proc.poll() is not None:
+            time.sleep(0.4)
+            if status_path.is_file():
+                try:
+                    data = json.loads(status_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    data = {}
+                if data.get("error") and data.get("done"):
+                    raise RuntimeError(data["error"])
+                if data.get("done"):
+                    result = data.get("result") or data
+                    break
+            if result is None and proc.returncode not in (0, None):
+                raise RuntimeError(
+                    f"Cache sync exited with code {proc.returncode}. "
+                    "Enable Full Disk Access for Terminal.app, quit Terminal, and retry."
+                )
+            if result is None and proc.returncode == 0:
+                cached = messages_cache_dir() / "chat.db"
+                if cached.is_file():
+                    result = {"ok": True, "method": "terminal"}
+                    break
+        time.sleep(0.25)
+
+    if result is None:
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+        raise TimeoutError("Cache sync timed out")
+
+    cached = messages_cache_dir() / "chat.db"
+    if not cached.is_file():
+        raise RuntimeError(
+            "Sync finished but messages-cache/chat.db is still missing. "
+            "Enable Full Disk Access for Terminal.app, quit Terminal, reopen, and retry."
+        )
+    result.setdefault("method", "terminal")
+    result["ok"] = True
+    result["messages_cache"] = str(messages_cache_dir())
+    result["messages_bytes"] = cached.stat().st_size
+    _report(progress, "Cache sync complete", 100, done=True)
+    return result
+
+
+def refresh_caches_via_terminal(progress: Optional[ProgressFn] = None) -> dict[str, Any]:
+    """
+    Open Terminal.app to run the cache sync script.
+
+    Terminal's Full Disk Access is what previously worked on the Tahoe Mac
+    when MessageManager was run from the terminal before the cache redesign.
+    """
+    status_path = progress_file_path()
+    try:
+        if status_path.exists():
+            status_path.unlink()
+    except OSError:
+        pass
+
+    command = _install_terminal_sync_copy()
+    _report(
+        progress,
+        "Opening Terminal to sync cache (uses Terminal Full Disk Access)…",
+        1,
+    )
+    # Reveal + launch so the user can grant FDA to Terminal if needed.
+    try:
+        subprocess.Popen(["open", "-R", str(command)])  # noqa: S603
+    except OSError:
+        pass
+    proc = subprocess.Popen(  # noqa: S603
+        ["open", "-a", "Terminal", str(command)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    # `open` returns quickly; the Terminal script keeps writing progress.
+    time.sleep(0.5)
+    if proc.poll() not in (0, None) and proc.returncode not in (0, None):
+        raise RuntimeError("Could not open Terminal to run the cache sync script")
+
+    return _poll_progress_file(progress, proc=None, timeout_s=60 * 60)
+
+
+def open_terminal_sync() -> dict[str, Any]:
+    """Launch the Terminal sync helper without waiting (manual Recheck afterward)."""
+    command = _install_terminal_sync_copy()
+    try:
+        subprocess.Popen(["open", "-R", str(command)])  # noqa: S603
+    except OSError:
+        pass
+    subprocess.Popen(  # noqa: S603
+        ["open", "-a", "Terminal", str(command)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return {
+        "ok": True,
+        "command": str(command),
+        "detail": (
+            "Opened Terminal cache sync. If it fails, enable Full Disk Access for "
+            "Terminal.app, quit Terminal, reopen, and run again. Then Recheck in MessageManager."
+        ),
+    }
+
+
 def refresh_caches(progress: Optional[ProgressFn] = None) -> dict[str, Any]:
     """
     Refresh Messages/Contacts caches with progress.
 
-    Prefers the native MessageManager binary (inherits app FDA on launch),
-    falls back to an in-process Python copy for development.
+    Order:
+      1) Native MessageManager --refresh-cache (app FDA)
+      2) Terminal sync script (Terminal FDA — works on Tahoe when app FDA does not)
+      3) In-process Python copy (dev / when the server itself has FDA)
     """
     if not _refresh_lock.acquire(blocking=False):
         raise RuntimeError("A cache refresh is already running")
     try:
+        errors: list[str] = []
         binary = _find_macos_binary()
         if binary is not None and os.environ.get("THREAD_LEDGER_MANAGED") == "1":
             try:
                 return refresh_caches_native(progress)
             except Exception as native_exc:  # noqa: BLE001
-                log.warning("Native cache refresh failed, trying Python: %s", native_exc)
+                log.warning("Native cache refresh failed: %s", native_exc)
+                errors.append(f"app: {native_exc}")
                 _report(
                     progress,
-                    "Native refresh failed — trying Python copy…",
-                    3,
+                    "App copy blocked — opening Terminal sync (use Terminal Full Disk Access)…",
+                    2,
                 )
-        return refresh_caches_python(progress)
+                try:
+                    return refresh_caches_via_terminal(progress)
+                except Exception as term_exc:  # noqa: BLE001
+                    log.warning("Terminal cache sync failed: %s", term_exc)
+                    errors.append(f"terminal: {term_exc}")
+                    _report(progress, "Terminal sync failed — trying Python copy…", 3)
+
+        try:
+            return refresh_caches_python(progress)
+        except Exception as py_exc:  # noqa: BLE001
+            errors.append(f"python: {py_exc}")
+            raise RuntimeError(
+                "Could not refresh cache. On this Mac, enable Full Disk Access for "
+                "Terminal.app (System Settings → Privacy & Security → Full Disk Access), "
+                "quit Terminal, reopen it, then use Refresh cache / Sync via Terminal. "
+                f"Details: {' | '.join(errors)}"
+            ) from py_exc
     finally:
         _refresh_lock.release()
 
@@ -423,6 +617,7 @@ def cache_status() -> dict[str, Any]:
         "messages_cache_bytes": msg.stat().st_size if msg.is_file() else None,
         "live_db_exists": False,
         "live_db_bytes": None,
+        "terminal_sync": terminal_sync_paths(),
     }
     try:
         if live.is_file():
