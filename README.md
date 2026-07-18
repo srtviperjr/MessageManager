@@ -71,14 +71,15 @@ chmod +x scripts/create-macos-app.sh scripts/create-macos-installer.sh scripts/m
 Creates:
 
 - `dist/MessageManager.app`
-- `dist/MessageManager-1.0.0.pkg` (and `dist/MessageManager.pkg`)
+- `dist/MessageManager-1.0.1.pkg` (and `dist/MessageManager.pkg`)
 
 ### 2. Install on a Mac
 
 1. Double-click the `.pkg` (right-click → **Open** if Gatekeeper blocks it)
-2. Complete the installer (app goes to **Applications**)
-3. When prompted, grant **Full Disk Access** to **MessageManager**
-4. Launch MessageManager from Applications
+2. Complete the installer (app is always installed to **/Applications/MessageManager.app**)
+3. If Python 3.9+ is missing, the installer downloads and installs Python 3.12 from python.org, then installs app dependencies
+4. When prompted, grant **Full Disk Access** to **MessageManager**
+5. Launch MessageManager from Applications
 
 ### 3. Updates
 
@@ -87,7 +88,7 @@ In **Settings → Updates**, check GitHub for a newer release. If one exists, **
 To publish a release:
 
 ```bash
-gh release create v1.0.0 dist/MessageManager-1.0.0.pkg --title "MessageManager 1.0.0" --notes "Initial 1.0 release"
+gh release create v1.0.1 dist/MessageManager-1.0.1.pkg --title "MessageManager 1.0.1" --notes "Release 1.0.1"
 ```
 
 ### Dev / direct `.app` copy

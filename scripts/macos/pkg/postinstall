@@ -1,21 +1,196 @@
 #!/bin/bash
 # Runs after MessageManager.pkg installs the app into /Applications.
-set -euo pipefail
+# Installs Python 3.12+ (if needed) and app pip dependencies for the console user.
+set -uo pipefail
 
 APP="/Applications/MessageManager.app"
-LOG_DIR="${HOME}/Library/Application Support/MessageManager/logs"
-mkdir -p "${LOG_DIR}"
+APP_RESOURCES="${APP}/Contents/Resources/app"
+REQUIREMENTS="${APP_RESOURCES}/requirements.txt"
+ID="com.srtviperjr.messagemanager"
+
+# Prefer the logged-in console user (installer runs as root).
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || true)"
+if [[ -z "${CONSOLE_USER}" || "${CONSOLE_USER}" == "root" || "${CONSOLE_USER}" == "loginwindow" ]]; then
+  CONSOLE_USER="${USER:-}"
+fi
+if [[ -z "${CONSOLE_USER}" || "${CONSOLE_USER}" == "root" ]]; then
+  CONSOLE_USER="$(basename "$(dscl . -list /Users UniqueID | awk '$2 >= 500 {print $1; exit}')" 2>/dev/null || true)"
+fi
+CONSOLE_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+if [[ -z "${CONSOLE_HOME}" || ! -d "${CONSOLE_HOME}" ]]; then
+  CONSOLE_HOME="/Users/${CONSOLE_USER}"
+fi
+
+APP_SUPPORT="${CONSOLE_HOME}/Library/Application Support/MessageManager"
+LOG_DIR="${APP_SUPPORT}/logs"
+mkdir -p "${LOG_DIR}" "${APP_SUPPORT}/data" 2>/dev/null || true
+# Ensure the console user owns Application Support data created by root.
+if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+  chown -R "${CONSOLE_USER}:staff" "${APP_SUPPORT}" 2>/dev/null || true
+fi
 LOG="${LOG_DIR}/install.log"
 
 log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG}" >/dev/null
+  local line="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+  echo "${line}" >>"${LOG}" 2>/dev/null || true
+  echo "${line}"
 }
 
-log "postinstall starting"
+python_usable() {
+  local candidate="$1"
+  [[ -n "${candidate}" && -x "${candidate}" ]] || return 1
+  "${candidate}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1
+}
 
-if [[ -d "${APP}" ]]; then
-  xattr -cr "${APP}" 2>/dev/null || true
-  log "Cleared quarantine on ${APP}"
+find_python() {
+  local candidates=(
+    "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
+    "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"
+    "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3"
+    "/Library/Frameworks/Python.framework/Versions/3.10/bin/python3"
+    "/Library/Frameworks/Python.framework/Versions/3.9/bin/python3"
+    "/opt/homebrew/bin/python3"
+    "/usr/local/bin/python3"
+    "/usr/bin/python3"
+  )
+  local c
+  for c in "${candidates[@]}"; do
+    if python_usable "${c}"; then
+      echo "${c}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_python_runtime() {
+  # Official python.org macOS installer (universal2). Requires network during setup.
+  local version="3.12.10"
+  local pkg_name="python-${version}-macos11.pkg"
+  local url="https://www.python.org/ftp/python/${version}/${pkg_name}"
+  local tmp
+  tmp="$(mktemp -d /tmp/messagemanager-python.XXXXXX)"
+  local pkg_path="${tmp}/${pkg_name}"
+
+  log "Downloading Python ${version} from python.org…"
+  if ! curl -fsSL --connect-timeout 20 --max-time 300 -o "${pkg_path}" "${url}"; then
+    log "ERROR: failed to download ${url}"
+    rm -rf "${tmp}"
+    return 1
+  fi
+
+  log "Installing Python ${version} system-wide…"
+  if ! installer -pkg "${pkg_path}" -target / >>"${LOG}" 2>&1; then
+    log "ERROR: installer failed for ${pkg_path}"
+    rm -rf "${tmp}"
+    return 1
+  fi
+  rm -rf "${tmp}"
+  log "Python ${version} installed"
+  return 0
+}
+
+setup_venv_and_deps() {
+  local system_python="$1"
+  local venv="${APP_SUPPORT}/venv"
+  local py=""
+
+  log "Preparing venv for user ${CONSOLE_USER} with ${system_python}"
+
+  run_as_user() {
+    if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]] && id "${CONSOLE_USER}" >/dev/null 2>&1; then
+      # shellcheck disable=SC2086
+      su - "${CONSOLE_USER}" -c "$*"
+    else
+      bash -lc "$*"
+    fi
+  }
+
+  # Create / refresh venv as the console user so ownership is correct.
+  if ! run_as_user "\"${system_python}\" -m venv \"${venv}\"" >>"${LOG}" 2>&1; then
+    log "WARN: venv creation failed; trying as root then chown"
+    rm -rf "${venv}"
+    if ! "${system_python}" -m venv "${venv}" >>"${LOG}" 2>&1; then
+      log "ERROR: could not create venv"
+      return 1
+    fi
+    chown -R "${CONSOLE_USER}:staff" "${venv}" 2>/dev/null || true
+  fi
+
+  py="${venv}/bin/python"
+  if ! python_usable "${py}"; then
+    log "ERROR: venv python not usable at ${py}"
+    return 1
+  fi
+
+  if [[ ! -f "${REQUIREMENTS}" ]]; then
+    log "WARN: requirements.txt missing at ${REQUIREMENTS}"
+    return 0
+  fi
+
+  log "Installing Python packages from requirements.txt…"
+  if ! run_as_user "\"${py}\" -m pip install --upgrade pip" >>"${LOG}" 2>&1; then
+    "${py}" -m pip install --upgrade pip >>"${LOG}" 2>&1 || true
+  fi
+  if ! run_as_user "\"${py}\" -m pip install -r \"${REQUIREMENTS}\"" >>"${LOG}" 2>&1; then
+    if ! "${py}" -m pip install -r "${REQUIREMENTS}" >>"${LOG}" 2>&1; then
+      log "ERROR: pip install failed"
+      return 1
+    fi
+    chown -R "${CONSOLE_USER}:staff" "${venv}" 2>/dev/null || true
+  fi
+  log "Python packages installed"
+  return 0
+}
+
+log "postinstall starting (user=${CONSOLE_USER}, home=${CONSOLE_HOME})"
+
+if [[ ! -d "${APP}" ]]; then
+  log "ERROR: ${APP} was not installed"
+  exit 1
+fi
+
+# Normalize ownership/permissions so Finder / Launchpad list the app.
+chown -R root:wheel "${APP}" 2>/dev/null || true
+chmod -R u+rwX,go+rX "${APP}" 2>/dev/null || true
+chmod +x "${APP}/Contents/MacOS/MessageManager" 2>/dev/null || true
+xattr -cr "${APP}" 2>/dev/null || true
+
+# Force Launch Services to index /Applications (fixes missing Applications list entry
+# when an older relocatable copy lived elsewhere, e.g. project dist/).
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ -x "${LSREGISTER}" ]]; then
+  "${LSREGISTER}" -f "${APP}" >/dev/null 2>&1 || true
+  log "Registered ${APP} with Launch Services"
+fi
+
+# Touch Applications so Finder refreshes.
+touch /Applications >/dev/null 2>&1 || true
+
+# Ensure a usable Python 3.9+ runtime, then install app dependencies.
+PYTHON_BIN=""
+if PYTHON_BIN="$(find_python)"; then
+  log "Found Python: ${PYTHON_BIN} ($("${PYTHON_BIN}" -V 2>&1))"
+else
+  log "No usable Python 3.9+ found; installing from python.org"
+  if install_python_runtime; then
+    # Refresh PATH for Frameworks python
+    hash -r 2>/dev/null || true
+    if PYTHON_BIN="$(find_python)"; then
+      log "Using newly installed Python: ${PYTHON_BIN}"
+    else
+      log "ERROR: Python install finished but python3.9+ still not found"
+    fi
+  else
+    log "ERROR: automatic Python install failed; app will prompt on first launch"
+  fi
+fi
+
+DEPS_OK=0
+if [[ -n "${PYTHON_BIN}" ]]; then
+  if setup_venv_and_deps "${PYTHON_BIN}"; then
+    DEPS_OK=1
+  fi
 fi
 
 # Open Full Disk Access settings so the user can grant Messages/Contacts access.
@@ -23,7 +198,15 @@ open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Pri
   || open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" >/dev/null 2>&1 \
   || true
 
-osascript >/dev/null 2>&1 <<'EOF' || true
+# Reveal the app in Finder so it is obvious where it landed.
+open -R "${APP}" >/dev/null 2>&1 || open /Applications >/dev/null 2>&1 || true
+
+DEPS_NOTE="Python packages were prepared for first launch."
+if [[ "${DEPS_OK}" -ne 1 ]]; then
+  DEPS_NOTE="If launch fails, ensure Python 3.9+ is installed (python.org), then reopen MessageManager."
+fi
+
+osascript >/dev/null 2>&1 <<EOF || true
 display dialog "MessageManager was installed in Applications.
 
 Next step (required):
@@ -31,11 +214,11 @@ Next step (required):
 2. If it is not listed, click +, choose Applications → MessageManager
 3. Quit MessageManager fully, then open it again
 
-Python 3.9+ from python.org is also required on first launch if not already installed." buttons {"Open MessageManager", "OK"} default button "Open MessageManager" with title "MessageManager Setup"
+${DEPS_NOTE}" buttons {"Open MessageManager", "OK"} default button "Open MessageManager" with title "MessageManager Setup"
 set choice to button returned of result
 if choice is "Open MessageManager" then
   try
-    open application "MessageManager"
+    do shell script "open -a '${APP}'"
   end try
 end if
 EOF

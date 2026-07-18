@@ -5,7 +5,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="${ROOT}/dist"
 APP_NAME="MessageManager"
-APP="${DIST}/${APP_NAME}.app"
+# Stage under .build so rebuilds work even if a prior root-owned
+# dist/MessageManager.app was left behind by an installer dry-run.
+BUILD_ROOT="${DIST}/.build"
+APP="${BUILD_ROOT}/${APP_NAME}.app"
+FINAL_APP="${DIST}/${APP_NAME}.app"
 CONTENTS="${APP}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
@@ -32,7 +36,7 @@ PY
 
 cd "${ROOT}"
 echo "Building ${APP} (v${VERSION})"
-rm -rf "${APP}"
+rm -rf "${BUILD_ROOT}"
 mkdir -p "${MACOS}" "${APP_PAYLOAD}"
 
 # Bundle project files (not venv, data, git, dist, tools)
@@ -94,5 +98,15 @@ EOF
 # Clear quarantine so the other Mac can open it after AirDrop/USB (still may need right-click Open once)
 xattr -cr "${APP}" 2>/dev/null || true
 
-echo "Done: ${APP}"
+# Best-effort publish to dist/MessageManager.app for local use.
+if rm -rf "${FINAL_APP}" 2>/dev/null; then
+  ditto "${APP}" "${FINAL_APP}"
+  xattr -cr "${FINAL_APP}" 2>/dev/null || true
+  echo "Done: ${FINAL_APP}"
+else
+  echo "Done: ${APP}"
+  echo "Note: could not replace ${FINAL_APP} (permission denied). Using staged build above."
+fi
 echo "Version: ${VERSION}"
+# Always expose the usable app path for the installer script.
+printf '%s\n' "${APP}" > "${DIST}/.last-app-path"
