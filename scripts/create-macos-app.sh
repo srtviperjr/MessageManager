@@ -56,7 +56,7 @@ rsync -a \
 
 # Native Mach-O executable so Full Disk Access applies to MessageManager.app.
 # (A shell-script CFBundleExecutable cannot read ~/Library/Messages for Python.)
-clang -Os -o "${MACOS}/${APP_NAME}" "${ROOT}/scripts/macos/launcher.c"
+clang -Os -arch arm64 -arch x86_64 -o "${MACOS}/${APP_NAME}" "${ROOT}/scripts/macos/launcher.c"
 chmod +x "${MACOS}/${APP_NAME}"
 chmod +x "${APP_PAYLOAD}/scripts/macos/launch.sh"
 
