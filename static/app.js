@@ -150,7 +150,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.28";
+state.appVersion = "1.0.29";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
@@ -1723,7 +1723,10 @@ async function promptInstallUpdate(info, { force = false } = {}) {
   const key = `mm-update-prompted-${latest}`;
   if (!force && sessionStorage.getItem(key) === "dismissed") return false;
   const install = confirm(
-    `MessageManager ${latest} is available (you have ${current}).\n\nDownload and install the update now?`
+    `MessageManager ${latest} is available (you have ${current}).\n\n` +
+      `Download and install now?\n\n` +
+      `The installer will open. When you finish and close it, MessageManager reopens from Applications ` +
+      `(the download package is removed automatically).`
   );
   if (!install) {
     sessionStorage.setItem(key, "dismissed");
@@ -1751,7 +1754,8 @@ async function closeAppForUpgrade() {
   try {
     document.body.innerHTML =
       "<main style='font:500 16px/1.4 system-ui;padding:3rem;text-align:center;color:#1c2430'>" +
-      "Installer is running. This tab can be closed — MessageManager will reopen after install." +
+      "Installer is running. Close this tab, finish the installer, then close its success window — " +
+      "MessageManager will reopen from Applications." +
       "</main>";
     document.title = "MessageManager — updating";
   } catch {
@@ -1776,12 +1780,14 @@ async function downloadAndInstallUpdate() {
       method: "POST",
       body: JSON.stringify({ url }),
     });
-    setStatus("Installer opened — closing MessageManager for a clean upgrade…", null, {
-      busy: true,
-    });
+    setStatus(
+      "Installer opened — finish it, then close the installer window. MessageManager will reopen.",
+      null,
+      { busy: true }
+    );
     if (els.updateStatus) {
       els.updateStatus.textContent =
-        "Installer opened. Closing this session so the new version can relaunch cleanly.";
+        "Installer opened. Finish installation and close the installer — MessageManager reopens from Applications.";
     }
     // Give the OS a moment to present the installer before we tear down.
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -2407,7 +2413,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.28";
+    state.appVersion = health.version || state.appVersion || "1.0.29";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

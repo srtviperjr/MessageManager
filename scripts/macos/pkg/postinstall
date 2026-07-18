@@ -224,8 +224,10 @@ if [[ -n "${PYTHON_BIN}" ]]; then
   fi
 fi
 
-# Do not open Finder / Applications — upgrades should stay silent.
-# Do not show success dialogs on upgrade.
+# Do not open Finder / Applications from postinstall while Installer.app is still
+# showing its success dialog — that raced the UI and created a transient Dock tile
+# on the right. Instead: delete the downloaded pkg now, then relaunch only after
+# Installer exits, always via /Applications/MessageManager.app.
 
 CACHE_DB="${CONSOLE_HOME}/Library/Application Support/MessageManager/messages-cache/chat.db"
 FIRST_INSTALL=0
@@ -233,42 +235,116 @@ if [[ ! -f "${CACHE_DB}" ]]; then
   FIRST_INSTALL=1
 fi
 
-relaunch_app_quietly() {
-  # Prefer the console user so GUI launch works from installer (root) context.
-  local runner="${CONSOLE_USER}"
-  if [[ -z "${runner}" || "${runner}" == "root" ]]; then
-    open -a "${APP}" >/dev/null 2>&1 || true
-    return
+cleanup_downloaded_pkgs() {
+  # Install already succeeded — remove the updater pkg without asking.
+  local home="${CONSOLE_HOME}"
+  local patterns=(
+    "${home}/Downloads/MessageManager.pkg"
+    "${home}/Downloads/MessageManager"*.pkg
+    "${home}/Desktop/MessageManager.pkg"
+    "${home}/Desktop/MessageManager"*.pkg
+  )
+  local f
+  for f in "${patterns[@]}"; do
+    # shellcheck disable=SC2086
+    rm -f ${f} 2>/dev/null || true
+  done
+  if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+    su - "${CONSOLE_USER}" -c 'rm -f "${HOME}/Downloads/MessageManager.pkg" "${HOME}/Downloads"/MessageManager*.pkg "${HOME}/Desktop/MessageManager.pkg" "${HOME}/Desktop"/MessageManager*.pkg' >/dev/null 2>&1 || true
   fi
-  # Quit any running copy, then start the newly installed build.
-  su - "${runner}" -c "osascript -e 'tell application \"MessageManager\" to quit' >/dev/null 2>&1 || true" 2>/dev/null || true
-  sleep 0.6
-  su - "${runner}" -c "open -a '${APP}'" >/dev/null 2>&1 || open -a "${APP}" >/dev/null 2>&1 || true
+  log "Removed downloaded MessageManager.pkg from Downloads/Desktop (if present)"
 }
 
-if [[ "${FIRST_INSTALL}" -eq 1 ]]; then
-  # First install only: open Full Disk Access once, with a single setup dialog.
-  open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" >/dev/null 2>&1 \
-    || open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" >/dev/null 2>&1 \
+# Help Launch Services / Dock keep a single identity for /Applications.
+if [[ -x "${LSREGISTER}" ]]; then
+  for stale in \
+    "${CONSOLE_HOME}/Downloads/MessageManager.app" \
+    "${CONSOLE_HOME}/Desktop/MessageManager.app"
+  do
+    if [[ -d "${stale}" ]]; then
+      "${LSREGISTER}" -u "${stale}" >/dev/null 2>&1 || true
+      log "Unregistered stale app copy: ${stale}"
+    fi
+  done
+  "${LSREGISTER}" -f "${APP}" >/dev/null 2>&1 || true
+fi
+
+cleanup_downloaded_pkgs
+
+schedule_after_installer() {
+  # Write a small helper, then run it in the background as the console user.
+  # It waits until Installer.app exits (user closed the success dialog), then
+  # opens /Applications/MessageManager.app so Dock pins keep one identity.
+  local mode="$1" # upgrade | first
+  local runner="${CONSOLE_USER}"
+  local helper_dir="${CONSOLE_HOME}/Library/Application Support/MessageManager/bin"
+  local helper="${helper_dir}/finish-install.sh"
+  mkdir -p "${helper_dir}" 2>/dev/null || true
+
+  cat >"${helper}" <<EOF
+#!/bin/bash
+set +e
+APP="/Applications/MessageManager.app"
+MODE="${mode}"
+DEPS_OK="${DEPS_OK}"
+
+# Wait for Installer UI to finish (up to ~10 minutes).
+for _ in \$(seq 1 1200); do
+  if ! /usr/bin/pgrep -x Installer >/dev/null 2>&1; then
+    break
+  fi
+  /bin/sleep 0.5
+done
+/bin/sleep 0.4
+
+/usr/bin/osascript -e 'tell application "MessageManager" to quit' >/dev/null 2>&1 || true
+/bin/sleep 0.4
+
+if [[ "\${MODE}" == "first" ]]; then
+  /usr/bin/open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" >/dev/null 2>&1 \\
+    || /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" >/dev/null 2>&1 \\
     || true
   DEPS_NOTE="Python packages were prepared for first launch."
-  if [[ "${DEPS_OK}" -ne 1 ]]; then
+  if [[ "\${DEPS_OK}" != "1" ]]; then
     DEPS_NOTE="If launch fails, install Python 3.9+ from python.org, then reopen MessageManager."
   fi
-  osascript >/dev/null 2>&1 <<EOF || true
+  /usr/bin/osascript >/dev/null 2>&1 <<APPLESCRIPT || true
 display dialog "MessageManager is installed.
 
 Enable Full Disk Access for MessageManager (Privacy & Security), then click Open.
 
-${DEPS_NOTE}" buttons {"Open MessageManager"} default button "Open MessageManager" with title "MessageManager Setup"
+\${DEPS_NOTE}" buttons {"Open MessageManager"} default button "Open MessageManager" with title "MessageManager Setup"
 try
-  do shell script "open -a '${APP}'"
+  do shell script "open '/Applications/MessageManager.app'"
 end try
-EOF
+APPLESCRIPT
 else
-  # Upgrade: no dialogs, no Finder, no Privacy prompts — just relaunch.
-  log "Upgrade install — relaunching MessageManager quietly (no prompts)"
-  relaunch_app_quietly
+  /usr/bin/open "/Applications/MessageManager.app" >/dev/null 2>&1 || true
+fi
+
+/bin/rm -f "\${HOME}/Downloads/MessageManager.pkg" "\${HOME}/Downloads"/MessageManager*.pkg 2>/dev/null || true
+/bin/rm -f "\${HOME}/Desktop/MessageManager.pkg" "\${HOME}/Desktop"/MessageManager*.pkg 2>/dev/null || true
+/bin/rm -f "\${HOME}/Library/Application Support/MessageManager/bin/finish-install.sh" 2>/dev/null || true
+EOF
+  chmod 755 "${helper}" 2>/dev/null || true
+  if [[ -n "${runner}" && "${runner}" != "root" ]]; then
+    chown "${runner}:staff" "${helper}" 2>/dev/null || true
+    chown -R "${runner}:staff" "${helper_dir}" 2>/dev/null || true
+  fi
+
+  if [[ -n "${runner}" && "${runner}" != "root" ]] && id "${runner}" >/dev/null 2>&1; then
+    su - "${runner}" -c "nohup /bin/bash '${helper}' >/dev/null 2>&1 &" >/dev/null 2>&1 || true
+  else
+    nohup /bin/bash "${helper}" >/dev/null 2>&1 &
+  fi
+}
+
+if [[ "${FIRST_INSTALL}" -eq 1 ]]; then
+  log "First install — will prompt for Full Disk Access after Installer closes"
+  schedule_after_installer "first"
+else
+  log "Upgrade install — will reopen /Applications/MessageManager.app after Installer closes"
+  schedule_after_installer "upgrade"
 fi
 
 log "postinstall finished"
