@@ -115,9 +115,11 @@ const els = {
   exportSupportBundleBtn: document.getElementById("export-support-bundle-btn"),
   openAccessLogsBtn: document.getElementById("open-access-logs-btn"),
   openPrivacyBtn: document.getElementById("open-privacy-btn"),
+  runGrantScriptBtn: document.getElementById("run-grant-script-btn"),
   recheckPermissionsBtn: document.getElementById("recheck-permissions-btn"),
   settingsAccessChecklist: document.getElementById("settings-access-checklist"),
   settingsAccessDetail: document.getElementById("settings-access-detail"),
+  settingsRunGrantBtn: document.getElementById("settings-run-grant-btn"),
   settingsRecheckAccessBtn: document.getElementById("settings-recheck-access-btn"),
   settingsCopyBundleBtn: document.getElementById("settings-copy-bundle-btn"),
   settingsExportBundleBtn: document.getElementById("settings-export-bundle-btn"),
@@ -132,7 +134,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.16";
+state.appVersion = "1.0.17";
 state.updateInfo = null;
 state.diagnostics = null;
 
@@ -1101,11 +1103,7 @@ function renderAccessDiagnostics(diag) {
   renderChecklist(els.settingsAccessChecklist, checklist);
   if (els.settingsAccessDetail) {
     const steps = (diag?.next_steps || []).filter(Boolean);
-    els.settingsAccessDetail.textContent = steps.length
-      ? steps.join(" ")
-      : diag?.summary
-        ? String(diag.summary).split("\n").slice(0, 3).join(" ")
-        : "";
+    els.settingsAccessDetail.textContent = steps.slice(0, 2).join(" ");
   }
   if (els.accessDiagSummary) {
     const summary = (diag?.summary || "").trim();
@@ -1157,23 +1155,38 @@ async function exportSupportBundle() {
   }
 }
 
+async function runGrantScript() {
+  try {
+    clearStatus("Opening Full Disk Access helper…");
+    const data = await api("/api/permissions/run-grant-script", { method: "POST" });
+    const bits = [data.detail || "Opened Full Disk Access settings"];
+    if (data.exported) bits.push("Script also saved to Downloads");
+    clearStatus(bits.join(" · "));
+    return data;
+  } catch (err) {
+    clearStatus(err.message || "Could not run grant script");
+    return null;
+  }
+}
+
 function renderPermissions(permissions, messages, contacts) {
   // Only prompt when Messages are unreadable. Never nag once access already works.
   const show = messages?.readable === false || permissions?.needs_attention === true;
   if (!els.permissionsCard) return;
   if (messages?.readable === true) {
     els.permissionsCard.classList.add("hidden");
+    els.accessBanner?.classList.add("hidden");
     return;
   }
   els.permissionsCard.classList.toggle("hidden", !show);
   if (!show) return;
-  const parts = [
-    "Messages database is not readable yet. Enable Full Disk Access for MessageManager.app, fully quit, then reopen.",
-  ];
-  if (permissions?.guidance) parts.push(permissions.guidance);
-  if (messages?.error) parts.push(messages.error);
   if (els.permissionsText) {
-    els.permissionsText.textContent = parts.join(" ");
+    els.permissionsText.textContent =
+      permissions?.guidance || "Grant Full Disk Access, then quit and reopen.";
+  }
+  // Prefer the compact checklist over a long raw error banner.
+  if (els.accessBanner) {
+    els.accessBanner.classList.add("hidden");
   }
   if (state.diagnostics?.checklist) {
     renderChecklist(els.accessChecklist, state.diagnostics.checklist);
@@ -1783,13 +1796,12 @@ function bindEvents() {
   els.openPrivacyBtn?.addEventListener("click", async () => {
     try {
       await api("/api/permissions/open-settings", { method: "POST" });
-      clearStatus(
-        "Opened Privacy settings — enable Full Disk Access for MessageManager and Python"
-      );
+      clearStatus("Opened Privacy settings — enable MessageManager, then quit and reopen");
     } catch (err) {
       clearStatus(err.message || "Could not open Privacy settings");
     }
   });
+  els.runGrantScriptBtn?.addEventListener("click", () => runGrantScript());
   els.recheckPermissionsBtn?.addEventListener("click", async () => {
     try {
       const [health] = await Promise.all([
@@ -1801,10 +1813,8 @@ function bindEvents() {
         els.accessBanner?.classList.add("hidden");
         clearStatus("Permissions look good");
         await loadThreads();
-      } else if (health.permissions?.needs_attention) {
-        clearStatus("Still missing access — grant Full Disk Access to MessageManager.app, quit, reopen, then recheck");
       } else {
-        clearStatus("Still missing access");
+        clearStatus("Still missing access — run grant script, enable MessageManager, quit, reopen");
       }
     } catch (err) {
       clearStatus(err.message || "Recheck failed");
@@ -1813,6 +1823,7 @@ function bindEvents() {
   els.copySupportBundleBtn?.addEventListener("click", () => copySupportBundle());
   els.exportSupportBundleBtn?.addEventListener("click", () => exportSupportBundle());
   els.openAccessLogsBtn?.addEventListener("click", () => openLogsModal());
+  els.settingsRunGrantBtn?.addEventListener("click", () => runGrantScript());
   els.settingsRecheckAccessBtn?.addEventListener("click", async () => {
     try {
       const [health] = await Promise.all([
@@ -1823,7 +1834,7 @@ function bindEvents() {
       if (health.messages?.readable) {
         clearStatus("Messages access OK");
       } else {
-        clearStatus("Still missing access — see checklist below");
+        clearStatus("Still missing access — see checklist");
       }
     } catch (err) {
       clearStatus(err.message || "Recheck failed");
@@ -1882,7 +1893,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.16";
+    state.appVersion = health.version || state.appVersion || "1.0.17";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
@@ -1920,10 +1931,7 @@ async function init() {
     renderPlatformChip();
     renderAiStatus();
     renderThreadList();
-    if (!health.messages?.readable && health.messages?.error) {
-      els.accessBanner.textContent = health.messages.error;
-      els.accessBanner.classList.remove("hidden");
-    }
+    // Access banner stays hidden when the permissions card covers the same issue.
     if (els.openLogsBtn && state.logs?.log_dir) {
       els.openLogsBtn.title = state.logs.log_dir;
     }

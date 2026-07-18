@@ -61,6 +61,8 @@ clang -Os -arch arm64 -arch x86_64 \
   -o "${MACOS}/${APP_NAME}" "${ROOT}/scripts/macos/launcher.m"
 chmod +x "${MACOS}/${APP_NAME}"
 chmod +x "${APP_PAYLOAD}/scripts/macos/launch.sh"
+chmod +x "${APP_PAYLOAD}/scripts/macos/grant-full-disk-access.sh" \
+  "${APP_PAYLOAD}/scripts/macos/grant-full-disk-access.command" 2>/dev/null || true
 
 if [[ -f "${ROOT}/assets/AppIcon.icns" ]]; then
   cp "${ROOT}/assets/AppIcon.icns" "${RESOURCES}/AppIcon.icns"

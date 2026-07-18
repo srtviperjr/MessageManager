@@ -39,6 +39,7 @@ from app.diagnostics import (
     export_support_bundle,
     format_support_bundle,
 )
+from app.permissions_helper import grant_script_paths, run_grant_script
 from app.logs_api import list_log_files, read_log_file
 from app.migrations import run_migrations
 from app.platform_info import platform_status
@@ -212,16 +213,8 @@ def health() -> dict:
     messages_ok = bool(messages.get("readable"))
     contacts_ok = bool(contacts.get("available"))
     if not messages_ok:
-        cache_hint = ""
-        if messages.get("cache_db") and not messages.get("using_cache"):
-            cache_hint = (
-                f" Expected cache: {messages.get('cache_db')}."
-            )
         guidance = (
-            "Enable Full Disk Access for MessageManager.app (and usually Python), "
-            "fully quit, then reopen so the launcher can refresh the Messages cache."
-            + cache_hint
-            + " Use Settings → Access & troubleshooting or Logs → Export bundle to share diagnostics."
+            "Grant Full Disk Access to MessageManager.app, quit, and reopen."
         )
     else:
         # Access already works (live DB or launcher cache) — do not keep prompting.
@@ -255,6 +248,7 @@ def health() -> dict:
             "log_dir": str(log_dir()),
             "launch_log": str(log_dir() / "launch.log"),
         },
+        "grant_script": grant_script_paths(),
     }
 
 
@@ -369,6 +363,20 @@ def api_open_privacy_settings() -> dict:
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"ok": True}
+
+
+@app.post("/api/permissions/run-grant-script")
+def api_run_grant_script() -> dict:
+    """
+    Run the Full Disk Access helper: open settings, reveal app targets,
+    launch the script in Terminal, and save a copy to Downloads.
+    """
+    try:
+        return run_grant_script(open_terminal=True)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/shutdown")

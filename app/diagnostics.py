@@ -92,69 +92,70 @@ def _bundle_path() -> Optional[str]:
     return None
 
 
+def _short_path(path: Optional[str]) -> str:
+    if not path:
+        return ""
+    name = Path(path).name
+    if name.endswith(".app"):
+        return name
+    parent = Path(path).parent.name
+    return f"{parent}/{name}" if parent else name
+
+
 def _checklist(messages: dict[str, Any], runtime: dict[str, Any]) -> list[dict[str, Any]]:
     cache = _probe_path(_messages_cache_dir() / "chat.db")
     live = _probe_path(CHAT_DB)
     bundle = _bundle_path()
+    python_exe = runtime.get("python_executable") or runtime.get("executable")
+    fda_target = runtime.get("fda_target")
+    fda_name = runtime.get("fda_target_name") or _short_path(fda_target) or "Python"
     items = [
         {
             "id": "app_installed",
-            "label": "MessageManager.app is installed",
+            "label": "App installed",
             "ok": bool(bundle),
-            "detail": bundle or "Not found under /Applications",
+            "detail": "In /Applications" if bundle else "Install to /Applications",
         },
         {
             "id": "live_db_exists",
-            "label": "Messages database exists for this Mac user",
+            "label": "Messages DB found",
             "ok": bool(live.get("exists")) or bool(cache.get("exists")),
             "detail": (
-                live.get("path")
-                if live.get("exists")
-                else (
-                    "Open the Messages app once on this Mac user account, then relaunch MessageManager."
-                    if not cache.get("exists")
-                    else f"Using launcher cache at {cache.get('path')}"
-                )
+                "Found"
+                if live.get("exists") or cache.get("exists")
+                else "Open Messages once, then relaunch"
             ),
         },
         {
             "id": "cache_present",
-            "label": "Launcher Messages cache exists",
+            "label": "Launcher cache",
             "ok": bool(cache.get("exists")),
             "detail": (
-                f"{cache.get('path')} ({cache.get('size') or 0} bytes)"
+                "Ready"
                 if cache.get("exists")
-                else (
-                    "Missing. Grant Full Disk Access to MessageManager.app, fully quit, and reopen "
-                    "so the native launcher can copy chat.db."
-                )
+                else "Missing — grant FDA to MessageManager.app"
             ),
         },
         {
             "id": "cache_readable",
-            "label": "Messages cache/file is readable by the server",
+            "label": "Readable by server",
             "ok": bool(messages.get("readable")),
-            "detail": messages.get("error")
-            or ("OK" if messages.get("readable") else "Not readable"),
+            "detail": "OK" if messages.get("readable") else "Permission denied",
         },
         {
             "id": "python_runtime",
-            "label": "Python runtime identified",
-            "ok": bool(runtime.get("executable")),
-            "detail": runtime.get("executable") or "Unknown",
+            "label": "Python runtime",
+            "ok": bool(python_exe),
+            "detail": _short_path(python_exe) or "Unknown",
         },
         {
             "id": "fda_targets",
-            "label": "Full Disk Access targets to enable",
+            "label": "Enable in Full Disk Access",
             "ok": bool(messages.get("readable")),
             "detail": (
-                "MessageManager.app"
-                + (
-                    f" and {runtime.get('fda_target')}"
-                    if runtime.get("fda_target")
-                    else ""
-                )
-                + ". Toggle off/on if already checked, then fully quit and reopen."
+                f"MessageManager.app + {fda_name}"
+                if fda_target
+                else "MessageManager.app"
             ),
         },
     ]
@@ -199,24 +200,18 @@ def build_diagnostics() -> dict[str, Any]:
     checklist = _checklist(messages, runtime)
     next_steps: list[str] = []
     if not messages.get("readable"):
-        if not probes["messages_cache_db"].get("exists"):
-            next_steps.append(
-                "Enable Full Disk Access for /Applications/MessageManager.app "
-                "(not only Python), fully quit MessageManager, then reopen it."
-            )
+        next_steps.append(
+            "Run the grant script or open Privacy Settings, enable MessageManager.app, quit, reopen."
+        )
         if runtime.get("fda_target"):
             next_steps.append(
-                f"Also enable Full Disk Access for: {runtime.get('fda_target')}"
+                f"Also enable: {_short_path(runtime.get('fda_target'))}."
             )
         if not probes["messages_live_db"].get("exists") and not probes[
             "messages_cache_db"
         ].get("exists"):
-            next_steps.append(
-                "Open the Messages app once while signed into this Mac user, then relaunch MessageManager."
-            )
-        next_steps.append(
-            "Use Logs → Copy support bundle (or Export) and send that text for help."
-        )
+            next_steps.append("Open the Messages app once, then relaunch.")
+        next_steps.append("If stuck, export a support bundle from Logs.")
     else:
         next_steps.append("Messages access looks OK.")
 

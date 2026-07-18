@@ -473,54 +473,82 @@ input {
 }
 
 .permissions-card {
-  padding: 0.85rem 0.9rem;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(52vh, 28rem);
+  padding: 0.75rem 0.8rem;
   border-radius: 14px;
   border: 1px solid rgba(138, 59, 18, 0.22);
   background: #fff4e8;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.45rem;
+  overflow: hidden;
 }
 
 .permissions-title {
   margin: 0;
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: #5c3114;
 }
 
 .permissions-text {
   margin: 0;
   color: #5c3114;
-  font-size: 0.8rem;
-  line-height: 1.4;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .permissions-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+}
+
+.permissions-actions .load-btn,
+.permissions-actions .settings-cancel,
+.permissions-actions .primary {
+  font-size: 0.78rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.access-checklist-scroll {
+  flex: 1 1 auto;
+  min-height: 4.5rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.15rem 0;
+  padding-right: 0.15rem;
+}
+
+.settings-checklist-scroll {
+  max-height: 14rem;
 }
 
 .access-checklist {
   list-style: none;
-  margin: 0.65rem 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .access-checklist li {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.35rem 0.55rem;
-  padding: 0.45rem 0.55rem;
-  border-radius: 10px;
+  gap: 0.15rem 0.45rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid var(--line);
-  font-size: 0.82rem;
-  line-height: 1.35;
+  font-size: 0.76rem;
+  line-height: 1.3;
 }
 
 .access-checklist .check-mark {
@@ -544,7 +572,7 @@ input {
 .access-checklist .check-detail {
   grid-column: 2;
   color: var(--ink-soft);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   word-break: break-word;
 }
 
