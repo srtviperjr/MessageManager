@@ -108,12 +108,12 @@ export NOTARY_PROFILE="notary-profile"
 
 ### 3. Updates
 
-In **Settings → Updates**, check GitHub for a newer release. If one exists, **Download & install update** fetches the release `.pkg` and opens it. After upgrading, reopen the app so migrations can apply.
+On every launch, MessageManager checks GitHub Releases and prompts if a newer version is available. You can also use **Settings → Updates**. Choosing install downloads `MessageManager.pkg` and opens it; finish the installer, then quit and reopen so migrations can apply.
 
 To publish a release:
 
 ```bash
-gh release create v1.0.2 dist/MessageManager.pkg --title "MessageManager 1.0.2" --notes "Release 1.0.2"
+gh release create v1.0.3 dist/MessageManager.pkg --title "MessageManager 1.0.3" --notes "Release 1.0.3"
 ```
 
 ### Dev / direct `.app` copy

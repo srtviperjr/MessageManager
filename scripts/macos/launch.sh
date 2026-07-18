@@ -42,8 +42,17 @@ python_usable() {
   return 1
 }
 
+is_preferred_python() {
+  local candidate="$1"
+  [[ "${candidate}" == /Library/Frameworks/Python.framework/* ]] \
+    || [[ "${candidate}" == /opt/homebrew/bin/python3 ]] \
+    || [[ "${candidate}" == /usr/local/bin/python3 ]]
+}
+
 find_python() {
-  local candidates=(
+  # Prefer python.org / Homebrew. Avoid /usr/bin/python3 (CLT) when possible —
+  # Full Disk Access on Message.app does not transfer to that interpreter.
+  local preferred=(
     "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
     "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"
     "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3"
@@ -51,11 +60,13 @@ find_python() {
     "/Library/Frameworks/Python.framework/Versions/3.9/bin/python3"
     "/opt/homebrew/bin/python3"
     "/usr/local/bin/python3"
+  )
+  local fallback=(
     "$(command -v python3 2>/dev/null || true)"
     "/usr/bin/python3"
   )
   local c
-  for c in "${candidates[@]}"; do
+  for c in "${preferred[@]}" "${fallback[@]}"; do
     [[ -n "${c}" ]] || continue
     if python_usable "${c}"; then
       echo "${c}"
@@ -65,23 +76,56 @@ find_python() {
   return 1
 }
 
+venv_base_python() {
+  local cfg="${VENV}/pyvenv.cfg"
+  [[ -f "${cfg}" ]] || return 1
+  local home
+  home="$(awk -F' = ' '/^home/ {print $2; exit}' "${cfg}" 2>/dev/null || true)"
+  [[ -n "${home}" ]] || return 1
+  if [[ -x "${home}/python3" ]]; then
+    echo "${home}/python3"
+  elif [[ -x "${home}/python" ]]; then
+    echo "${home}/python"
+  else
+    echo "${home}"
+  fi
+}
+
 setup_runtime() {
   local system_python
   if ! system_python="$(find_python)"; then
     die "Python 3.9+ is not installed (or only the macOS stub is present).
 
 Install Python from https://www.python.org/downloads/macos/
-(or run: xcode-select --install), then open MessageManager again."
+then open MessageManager again."
   fi
   log "Using Python: ${system_python} ($("${system_python}" -V 2>&1))"
-
-  if [[ -x "${VENV}/bin/python" ]] && python_usable "${VENV}/bin/python"; then
-    PYTHON_BIN="${VENV}/bin/python"
-    log "Using existing venv"
-    return
+  if ! is_preferred_python "${system_python}"; then
+    log "WARN: using system/CLT Python — grant Full Disk Access to Python as well as MessageManager"
   fi
 
-  rm -rf "${VENV}"
+  local rebuild_venv=0
+  if [[ -x "${VENV}/bin/python" ]] && python_usable "${VENV}/bin/python"; then
+    local base
+    base="$(venv_base_python || true)"
+    if is_preferred_python "${system_python}" && [[ -n "${base}" ]] && ! is_preferred_python "${base}"; then
+      log "Existing venv is based on ${base}; recreating with ${system_python}"
+      rebuild_venv=1
+    else
+      PYTHON_BIN="${VENV}/bin/python"
+      log "Using existing venv"
+      # Ensure deps still present after upgrades.
+      "${PYTHON_BIN}" -m pip install -r "${ROOT}/requirements.txt" >>"${LOG_FILE}" 2>&1 || true
+      return
+    fi
+  else
+    rebuild_venv=1
+  fi
+
+  if [[ "${rebuild_venv}" -eq 1 ]]; then
+    rm -rf "${VENV}"
+  fi
+
   log "Creating virtualenv at ${VENV}"
   if "${system_python}" -m venv "${VENV}" >>"${LOG_FILE}" 2>&1 \
     && [[ -x "${VENV}/bin/python" ]]; then
@@ -175,21 +219,10 @@ stop_server() {
 }
 
 run_keepalive() {
-  local keepalive="${ROOT}/scripts/macos/keepalive.py"
-  if [[ ! -f "${keepalive}" ]]; then
-    log "keepalive.py missing at ${keepalive}"
-    return 2
-  fi
-  if ! "${PYTHON_BIN}" -c 'import tkinter' >/dev/null 2>&1; then
-    log "tkinter not available in ${PYTHON_BIN}"
-    return 2
-  fi
-  log "Starting Tk keep-alive window"
-  set +e
-  "${PYTHON_BIN}" "${keepalive}" "${URL}" "${LOG_DIR}"
-  local status=$?
-  set -e
-  return "${status}"
+  # Tk on Apple CLT Python often crashes ("Python quit unexpectedly"). Prefer a
+  # headless keep-alive; users can Quit from the browser footer.
+  log "Using headless keep-alive (browser Quit stops the server)"
+  return 2
 }
 
 wait_until_server_stops() {

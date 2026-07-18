@@ -36,6 +36,7 @@ from app.imessage import (
 from app.logging_util import configure_logging, get_logger, log_dir, log_file_path
 from app.migrations import run_migrations
 from app.platform_info import platform_status
+from app.runtime_info import runtime_status
 from app.summarize import summarize_thread
 from app import updates as updates_store
 from app.version import APP_NAME, APP_VERSION, GITHUB_REPO
@@ -197,6 +198,19 @@ def _build_summary(chat_id: int, req: SummaryRequest, progress=None) -> dict[str
 def health() -> dict:
     messages = access_status()
     contacts = contacts_status(quick=True)
+    runtime = runtime_status()
+    fda_target = runtime.get("fda_target")
+    messages_ok = bool(messages.get("readable"))
+    if not messages_ok:
+        guidance = (
+            "macOS grants Full Disk Access per program. Enable it for BOTH "
+            "MessageManager and Python (the interpreter that actually reads chat.db), "
+            "then quit and reopen MessageManager."
+        )
+        if fda_target:
+            guidance += f" Add this Python target: {fda_target}"
+    else:
+        guidance = None
     return {
         "ok": True,
         "version": APP_VERSION,
@@ -204,19 +218,16 @@ def health() -> dict:
         "github_repo": GITHUB_REPO,
         "migration": MIGRATION_STATUS,
         "platform": platform_status(),
+        "runtime": runtime,
         "messages": messages,
         "contacts": contacts,
         "permissions": {
-            "full_disk_access": bool(messages.get("readable")),
-            "messages_readable": bool(messages.get("readable")),
+            "full_disk_access": messages_ok,
+            "messages_readable": messages_ok,
             "contacts_readable": bool(contacts.get("available")),
-            "needs_attention": (not messages.get("readable")) or (not contacts.get("available")),
-            "guidance": (
-                "Grant Full Disk Access to MessageManager in System Settings → Privacy & Security, "
-                "then quit and reopen the app."
-                if not messages.get("readable")
-                else None
-            ),
+            "needs_attention": (not messages_ok) or (not contacts.get("available")),
+            "fda_target": fda_target,
+            "guidance": guidance,
         },
         "apple_intelligence": capability_status(),
         "settings": settings_store.get_settings(),

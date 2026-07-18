@@ -112,7 +112,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.2";
+state.appVersion = "1.0.3";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -1028,10 +1028,15 @@ function renderPermissions(permissions, messages, contacts) {
   if (!needs) return;
   const parts = [];
   if (!messages?.readable) {
-    parts.push("Messages database is not readable yet (Full Disk Access required).");
+    parts.push(
+      "Messages database is not readable yet. Enable Full Disk Access for MessageManager AND Python, then quit and reopen."
+    );
   }
   if (contacts && contacts.available === false) {
     parts.push("Contacts lookup is limited until Full Disk Access is granted.");
+  }
+  if (permissions?.fda_target) {
+    parts.push(`Python to add: ${permissions.fda_target}`);
   }
   if (permissions?.guidance) parts.push(permissions.guidance);
   if (els.permissionsText) {
@@ -1080,12 +1085,34 @@ async function checkForUpdates({ quiet = false } = {}) {
   }
 }
 
+async function promptInstallUpdate(info, { force = false } = {}) {
+  if (!info?.update_available || !info?.installer?.url) return false;
+  const latest = info.latest_version || "a newer version";
+  const current = info.current_version || state.appVersion;
+  const key = `mm-update-prompted-${latest}`;
+  if (!force && sessionStorage.getItem(key) === "dismissed") return false;
+  const install = confirm(
+    `MessageManager ${latest} is available (you have ${current}).\n\nDownload and install the update now?`
+  );
+  if (!install) {
+    sessionStorage.setItem(key, "dismissed");
+    clearStatus(`Update ${latest} available — install anytime from Settings`);
+    return false;
+  }
+  await downloadAndInstallUpdate();
+  return true;
+}
+
 async function downloadAndInstallUpdate() {
   const url = state.updateInfo?.installer?.url;
   if (!url) return;
   if (els.installUpdateBtn) {
     els.installUpdateBtn.disabled = true;
     els.installUpdateBtn.textContent = "Downloading…";
+  }
+  if (els.updateBannerBtn) {
+    els.updateBannerBtn.disabled = true;
+    els.updateBannerBtn.textContent = "Downloading…";
   }
   setStatus("Downloading update…", null, { busy: true });
   try {
@@ -1104,6 +1131,10 @@ async function downloadAndInstallUpdate() {
     if (els.installUpdateBtn) {
       els.installUpdateBtn.disabled = false;
       els.installUpdateBtn.textContent = "Download & install update";
+    }
+    if (els.updateBannerBtn) {
+      els.updateBannerBtn.disabled = false;
+      els.updateBannerBtn.textContent = "Install";
     }
   }
 }
@@ -1467,7 +1498,9 @@ function bindEvents() {
   els.openPrivacyBtn?.addEventListener("click", async () => {
     try {
       await api("/api/permissions/open-settings", { method: "POST" });
-      clearStatus("Opened Privacy settings — enable Full Disk Access for MessageManager");
+      clearStatus(
+        "Opened Privacy settings — enable Full Disk Access for MessageManager and Python"
+      );
     } catch (err) {
       clearStatus(err.message || "Could not open Privacy settings");
     }
@@ -1485,9 +1518,18 @@ function bindEvents() {
       clearStatus(err.message || "Recheck failed");
     }
   });
-  els.checkUpdatesBtn?.addEventListener("click", () => checkForUpdates());
+  els.checkUpdatesBtn?.addEventListener("click", async () => {
+    const info = await checkForUpdates();
+    if (info?.update_available) await promptInstallUpdate(info, { force: true });
+  });
   els.installUpdateBtn?.addEventListener("click", () => downloadAndInstallUpdate());
-  els.updateBannerBtn?.addEventListener("click", () => openSettingsModal());
+  els.updateBannerBtn?.addEventListener("click", async () => {
+    if (state.updateInfo?.update_available) {
+      await promptInstallUpdate(state.updateInfo, { force: true });
+    } else {
+      openSettingsModal();
+    }
+  });
 
   els.openLogsBtn.addEventListener("click", () => {
     const logs = state.logs || {};
@@ -1521,7 +1563,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.2";
+    state.appVersion = health.version || state.appVersion || "1.0.3";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
@@ -1571,7 +1613,11 @@ async function init() {
     if (state.settings.auto_load_on_start) {
       await loadThreads();
     }
-    checkForUpdates({ quiet: true });
+    // Always check GitHub Releases on launch and prompt when an update exists.
+    const updateInfo = await checkForUpdates({ quiet: true });
+    if (updateInfo?.update_available) {
+      await promptInstallUpdate(updateInfo);
+    }
   } catch (err) {
     if (els.aiStatus) {
       els.aiStatus.textContent = err.message;

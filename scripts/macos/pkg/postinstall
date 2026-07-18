@@ -42,19 +42,31 @@ python_usable() {
   "${candidate}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1
 }
 
-find_python() {
+find_framework_python() {
   local candidates=(
     "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
     "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"
     "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3"
     "/Library/Frameworks/Python.framework/Versions/3.10/bin/python3"
     "/Library/Frameworks/Python.framework/Versions/3.9/bin/python3"
-    "/opt/homebrew/bin/python3"
-    "/usr/local/bin/python3"
-    "/usr/bin/python3"
   )
   local c
   for c in "${candidates[@]}"; do
+    if python_usable "${c}"; then
+      echo "${c}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+find_python() {
+  local c
+  if c="$(find_framework_python)"; then
+    echo "${c}"
+    return 0
+  fi
+  for c in "/opt/homebrew/bin/python3" "/usr/local/bin/python3" "/usr/bin/python3"; do
     if python_usable "${c}"; then
       echo "${c}"
       return 0
@@ -167,22 +179,25 @@ fi
 # Touch Applications so Finder refreshes.
 touch /Applications >/dev/null 2>&1 || true
 
-# Ensure a usable Python 3.9+ runtime, then install app dependencies.
+# Prefer python.org Framework Python for Full Disk Access reliability.
+# /usr/bin/python3 (CLT) can run the app but often cannot read chat.db even when
+# MessageManager itself has Full Disk Access.
 PYTHON_BIN=""
-if PYTHON_BIN="$(find_python)"; then
-  log "Found Python: ${PYTHON_BIN} ($("${PYTHON_BIN}" -V 2>&1))"
+if PYTHON_BIN="$(find_framework_python)"; then
+  log "Found Framework Python: ${PYTHON_BIN} ($("${PYTHON_BIN}" -V 2>&1))"
 else
-  log "No usable Python 3.9+ found; installing from python.org"
+  log "No python.org Framework Python found; installing from python.org"
   if install_python_runtime; then
-    # Refresh PATH for Frameworks python
     hash -r 2>/dev/null || true
-    if PYTHON_BIN="$(find_python)"; then
+    if PYTHON_BIN="$(find_framework_python)"; then
       log "Using newly installed Python: ${PYTHON_BIN}"
     else
-      log "ERROR: Python install finished but python3.9+ still not found"
+      log "ERROR: Python install finished but Framework python3 still not found"
+      PYTHON_BIN="$(find_python || true)"
     fi
   else
-    log "ERROR: automatic Python install failed; app will prompt on first launch"
+    log "ERROR: automatic Python install failed; falling back to any usable python3"
+    PYTHON_BIN="$(find_python || true)"
   fi
 fi
 

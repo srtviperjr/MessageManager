@@ -69,8 +69,9 @@ def _copy_chat_db() -> Path:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise MessagesAccessError(
             "Permission denied reading ~/Library/Messages/chat.db. "
-            "Grant Full Disk Access to Terminal (or the app running this server) "
-            "in System Settings → Privacy & Security → Full Disk Access, then restart."
+            "Grant Full Disk Access to BOTH MessageManager and Python "
+            "(System Settings → Privacy & Security → Full Disk Access), "
+            "then quit and reopen MessageManager."
         ) from exc
     except OSError as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
