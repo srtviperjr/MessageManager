@@ -150,7 +150,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.27";
+state.appVersion = "1.0.28";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
@@ -1541,7 +1541,7 @@ async function refreshCacheMeta() {
 
     const policy =
       info.refresh_policy?.summary ||
-      "Not on a timer. Updated when you press Sync cache (and on app launch if MessageManager has FDA).";
+      "When you open the app, and when you press Sync cache.";
     rows.push(`<div><strong>How often:</strong> ${escapeHtml(policy)}</div>`);
 
     els.settingsCacheMeta.innerHTML = rows.join("");
@@ -2407,7 +2407,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.27";
+    state.appVersion = health.version || state.appVersion || "1.0.28";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

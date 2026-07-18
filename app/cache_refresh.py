@@ -899,10 +899,7 @@ def cache_status() -> dict[str, Any]:
             "scheduled": False,
             "on_manual_sync": True,
             "on_app_launch": True,
-            "summary": (
-                "Not on a timer. Updated when you press Sync cache, and also "
-                "attempted on each app launch when MessageManager.app has Full Disk Access."
-            ),
+            "summary": "When you open the app, and when you press Sync cache.",
         },
         "cache_sync_method": settings_store.get_settings().get("cache_sync_method"),
         "terminal_sync": terminal_sync_paths(),
