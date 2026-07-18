@@ -8,9 +8,16 @@ mkdir -p "${LOG_DIR}" "${APP_SUPPORT}/data" "${MESSAGES_CACHE}"
 LOG_FILE="${LOG_DIR}/launch.log"
 SERVER_LOG="${LOG_DIR}/server.log"
 export THREAD_LEDGER_DATA="${APP_SUPPORT}/data"
-# Native launcher sets this after copying chat.db under Full Disk Access.
+CONTACTS_CACHE="${APP_SUPPORT}/contacts-cache"
+mkdir -p "${CONTACTS_CACHE}"
+# Native launcher sets these after copying DBs under Full Disk Access.
 if [[ -z "${THREAD_LEDGER_MESSAGES_CACHE:-}" && -f "${MESSAGES_CACHE}/chat.db" ]]; then
   export THREAD_LEDGER_MESSAGES_CACHE="${MESSAGES_CACHE}"
+fi
+if [[ -z "${THREAD_LEDGER_CONTACTS_CACHE:-}" ]] && {
+  [[ -f "${CONTACTS_CACHE}/AddressBook-v22.abcddb" ]] || [[ -d "${CONTACTS_CACHE}/Sources" ]]
+}; then
+  export THREAD_LEDGER_CONTACTS_CACHE="${CONTACTS_CACHE}"
 fi
 
 log() {

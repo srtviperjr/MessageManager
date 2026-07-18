@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import sqlite3
@@ -11,7 +12,14 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-ADDRESSBOOK_ROOT = Path.home() / "Library" / "Application Support" / "AddressBook"
+LIVE_ADDRESSBOOK_ROOT = Path.home() / "Library" / "Application Support" / "AddressBook"
+DEFAULT_CONTACTS_CACHE = (
+    Path.home()
+    / "Library"
+    / "Application Support"
+    / "MessageManager"
+    / "contacts-cache"
+)
 
 _lock = threading.Lock()
 _cache: dict[str, str] = {}
@@ -19,6 +27,21 @@ _cache_loaded_at = 0.0
 _cache_error: Optional[str] = None
 _CACHE_TTL_SECONDS = 600.0
 _DEFAULT_LOAD_TIMEOUT = 6.0
+
+
+def _addressbook_root() -> Path:
+    """Prefer launcher-copied Contacts cache (Full Disk Access applies there)."""
+    raw = (os.environ.get("THREAD_LEDGER_CONTACTS_CACHE") or "").strip()
+    if raw:
+        path = Path(raw).expanduser()
+        if path.is_dir():
+            return path
+    if DEFAULT_CONTACTS_CACHE.is_dir() and (
+        (DEFAULT_CONTACTS_CACHE / "AddressBook-v22.abcddb").exists()
+        or (DEFAULT_CONTACTS_CACHE / "Sources").is_dir()
+    ):
+        return DEFAULT_CONTACTS_CACHE
+    return LIVE_ADDRESSBOOK_ROOT
 
 
 def _digits(value: str) -> str:
@@ -73,12 +96,13 @@ def _contact_name(row: sqlite3.Row) -> Optional[str]:
 
 def _addressbook_db_paths() -> list[Path]:
     """Prefer Sources DBs (where contact data usually lives); include root last."""
+    root = _addressbook_root()
     paths: list[Path] = []
-    sources = ADDRESSBOOK_ROOT / "Sources"
+    sources = root / "Sources"
     if sources.is_dir():
         for path in sorted(sources.glob("*/AddressBook-v22.abcddb")):
             paths.append(path)
-    root_db = ADDRESSBOOK_ROOT / "AddressBook-v22.abcddb"
+    root_db = root / "AddressBook-v22.abcddb"
     if root_db.exists():
         paths.append(root_db)
     return paths
@@ -185,8 +209,9 @@ def _load_all_dbs() -> tuple[dict[str, str], Optional[str]]:
     mapping: dict[str, str] = {}
     error: Optional[str] = None
     db_paths = _addressbook_db_paths()
+    root = _addressbook_root()
     if not db_paths:
-        return mapping, f"No AddressBook database found under {ADDRESSBOOK_ROOT}"
+        return mapping, f"No AddressBook database found under {root}"
 
     for db_path in db_paths:
         try:
@@ -197,7 +222,7 @@ def _load_all_dbs() -> tuple[dict[str, str], Optional[str]]:
         except PermissionError:
             error = (
                 "Permission denied reading Contacts. Grant Full Disk Access "
-                "to the app running this server, then restart."
+                "to MessageManager, then quit and reopen so Contacts can be cached."
             )
             raise
         except Exception as exc:  # noqa: BLE001
@@ -332,20 +357,24 @@ def looks_like_handle(value: Optional[str]) -> bool:
 
 
 def contacts_status(*, quick: bool = False) -> dict[str, Any]:
+    root = _addressbook_root()
+    using_launcher_cache = root != LIVE_ADDRESSBOOK_ROOT
     if quick:
         with _lock:
             return {
                 "available": bool(_cache) and _cache_error is None,
                 "contact_keys": len(_cache),
                 "error": _cache_error,
-                "path": str(ADDRESSBOOK_ROOT),
+                "path": str(root),
                 "cached": bool(_cache),
+                "using_cache": using_launcher_cache,
             }
     mapping = refresh_contacts(timeout=3.0)
     return {
         "available": bool(mapping) and _cache_error is None,
         "contact_keys": len(mapping),
         "error": _cache_error,
-        "path": str(ADDRESSBOOK_ROOT),
+        "path": str(root),
         "cached": bool(mapping),
+        "using_cache": using_launcher_cache,
     }
