@@ -28,6 +28,7 @@ const state = {
     thread_activity_unit: "months",
     auto_load_on_start: false,
     default_message_limit: 10,
+    cache_sync_method: "python",
     custom_categories: [],
     enabled_categories: [...BUILTIN_CATEGORY_KEYS],
     hidden_from_default: ["ignore"],
@@ -116,15 +117,16 @@ const els = {
   openAccessLogsBtn: document.getElementById("open-access-logs-btn"),
   openPrivacyBtn: document.getElementById("open-privacy-btn"),
   runGrantScriptBtn: document.getElementById("run-grant-script-btn"),
-  syncTerminalBtn: document.getElementById("sync-terminal-btn"),
-  refreshCacheBtn: document.getElementById("refresh-cache-btn"),
+  syncCacheBtn: document.getElementById("sync-cache-btn"),
   cacheRefreshStatus: document.getElementById("cache-refresh-status"),
   recheckPermissionsBtn: document.getElementById("recheck-permissions-btn"),
   settingsAccessChecklist: document.getElementById("settings-access-checklist"),
   settingsAccessDetail: document.getElementById("settings-access-detail"),
   settingsCacheMeta: document.getElementById("settings-cache-meta"),
-  settingsSyncTerminalBtn: document.getElementById("settings-sync-terminal-btn"),
-  settingsRefreshCacheBtn: document.getElementById("settings-refresh-cache-btn"),
+  settingsSyncCacheBtn: document.getElementById("settings-sync-cache-btn"),
+  settingsSyncPython: document.getElementById("setting-sync-python"),
+  settingsSyncTerminal: document.getElementById("setting-sync-terminal"),
+  settingsSyncApp: document.getElementById("setting-sync-app"),
   settingsRunGrantBtn: document.getElementById("settings-run-grant-btn"),
   settingsRecheckAccessBtn: document.getElementById("settings-recheck-access-btn"),
   settingsCopyBundleBtn: document.getElementById("settings-copy-bundle-btn"),
@@ -140,10 +142,16 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.20";
+state.appVersion = "1.0.21";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
+
+function selectedCacheSyncMethod() {
+  const checked = document.querySelector('input[name="cache-sync-method"]:checked');
+  if (checked?.value) return checked.value;
+  return state.settings.cache_sync_method || "python";
+}
 
 function formatWhen(iso) {
   if (!iso) return "";
@@ -1229,117 +1237,52 @@ async function afterCacheReady(result) {
   }
 }
 
-async function syncCacheViaTerminal() {
+async function syncMessagesCache() {
   if (state.cacheRefreshing) {
     clearStatus("Cache sync already running");
     return null;
   }
+  // Persist method from Settings radios before syncing.
+  const method = selectedCacheSyncMethod();
+  if (method !== state.settings.cache_sync_method) {
+    try {
+      await persistSettingsPatch({ cache_sync_method: method });
+    } catch {
+      // continue with requested method via query if settings save fails
+    }
+  }
   state.cacheRefreshing = true;
-  const buttons = [
-    els.syncTerminalBtn,
-    els.settingsSyncTerminalBtn,
-    els.refreshCacheBtn,
-    els.settingsRefreshCacheBtn,
-  ].filter(Boolean);
+  const buttons = [els.syncCacheBtn, els.settingsSyncCacheBtn].filter(Boolean);
   buttons.forEach((btn) => {
     btn.disabled = true;
   });
+  const labels = { python: "Python", terminal: "Terminal", app: "MessageManager" };
   if (els.cacheRefreshStatus) {
     els.cacheRefreshStatus.classList.remove("hidden");
-    els.cacheRefreshStatus.textContent =
-      "Opening Terminal… enable FDA for Terminal if prompted";
+    els.cacheRefreshStatus.textContent = `Starting ${labels[method] || method} cache sync…`;
   }
   try {
-    // Start Terminal helper, then watch the same progress stream/file via refresh SSE
-    // which falls back to Terminal sync when the app copy fails.
-    await api("/api/cache/sync-via-terminal", { method: "POST" });
-    clearStatus("Terminal sync started — also watch the Terminal window");
-    const started = Date.now();
-    while (Date.now() - started < 60 * 60 * 1000) {
-      await new Promise((r) => setTimeout(r, 1000));
-      let prog = null;
-      try {
-        prog = await api("/api/cache/progress");
-      } catch {
-        prog = null;
+    const result = await readSse(
+      `/api/cache/refresh?method=${encodeURIComponent(method)}`,
+      {
+        onProgress: (message, percent) => {
+          setStatus(message, percent, { busy: true });
+          if (els.cacheRefreshStatus) {
+            els.cacheRefreshStatus.textContent =
+              percent != null ? `${message} (${percent}%)` : message;
+          }
+        },
       }
-      if (prog?.message) {
-        setStatus(prog.message, prog.percent, { busy: !prog.done });
-        if (els.cacheRefreshStatus) {
-          els.cacheRefreshStatus.textContent =
-            prog.percent != null
-              ? `${prog.message} (${prog.percent}%)`
-              : prog.message;
-        }
-      }
-      if (prog?.done && prog?.error) {
-        throw new Error(prog.error);
-      }
-      if (prog?.done && prog?.ok !== false) {
-        const info = await api("/api/cache/status");
-        await afterCacheReady({ messages_bytes: info.messages_cache_bytes });
-        return info;
-      }
-      try {
-        const info = await api("/api/cache/status");
-        if (info.messages_cache_exists && info.messages_cache_bytes > 0 && prog?.done) {
-          await afterCacheReady({ messages_bytes: info.messages_cache_bytes });
-          return info;
-        }
-      } catch {
-        // keep waiting
-      }
-    }
-    throw new Error("Timed out waiting for Terminal sync");
-  } catch (err) {
-    clearStatus(err.message || "Terminal sync failed");
-    if (els.cacheRefreshStatus) {
-      els.cacheRefreshStatus.textContent = err.message || "Terminal sync failed";
-    }
-    return null;
-  } finally {
-    state.cacheRefreshing = false;
-    buttons.forEach((btn) => {
-      btn.disabled = false;
-    });
-  }
-}
-
-async function refreshMessagesCache() {
-  if (state.cacheRefreshing) {
-    clearStatus("Cache refresh already running");
-    return null;
-  }
-  state.cacheRefreshing = true;
-  const buttons = [
-    els.refreshCacheBtn,
-    els.settingsRefreshCacheBtn,
-    els.syncTerminalBtn,
-    els.settingsSyncTerminalBtn,
-  ].filter(Boolean);
-  buttons.forEach((btn) => {
-    btn.disabled = true;
-  });
-  if (els.cacheRefreshStatus) {
-    els.cacheRefreshStatus.classList.remove("hidden");
-    els.cacheRefreshStatus.textContent = "Starting cache refresh…";
-  }
-  try {
-    const result = await readSse("/api/cache/refresh", {
-      onProgress: (message, percent) => {
-        setStatus(message, percent, { busy: true });
-        if (els.cacheRefreshStatus) {
-          els.cacheRefreshStatus.textContent =
-            percent != null ? `${message} (${percent}%)` : message;
-        }
-      },
-    });
+    );
     await afterCacheReady(result);
     return result;
   } catch (err) {
-    clearStatus(err.message || "Cache refresh failed — try Sync via Terminal");
+    clearStatus(
+      err.message ||
+        "Cache sync failed — enable Full Disk Access for the selected method in Settings"
+    );
     if (els.cacheRefreshStatus) {
-      els.cacheRefreshStatus.textContent = err.message || "Cache refresh failed";
+      els.cacheRefreshStatus.textContent = err.message || "Cache sync failed";
     }
     return null;
   } finally {
@@ -1700,6 +1643,10 @@ function fillSettingsForm() {
     els.aiToggle.checked = !!s.apple_intelligence_enabled;
     els.aiToggle.disabled = !state.platform?.apple_silicon;
   }
+  const syncMethod = s.cache_sync_method || "python";
+  if (els.settingsSyncPython) els.settingsSyncPython.checked = syncMethod === "python";
+  if (els.settingsSyncTerminal) els.settingsSyncTerminal.checked = syncMethod === "terminal";
+  if (els.settingsSyncApp) els.settingsSyncApp.checked = syncMethod === "app";
   syncSettingsLoadModeUI(s.thread_load_mode || "count");
   renderAiStatus();
   renderSettingsCategoryLists();
@@ -1785,6 +1732,7 @@ async function saveSettingsFromForm(event) {
         thread_activity_unit: activityUnit,
         default_message_limit: messageLimit,
         summary_days: summaryDays,
+        cache_sync_method: selectedCacheSyncMethod(),
         custom_categories: state.settingsDraftCustom,
         enabled_categories: enabled,
         hidden_from_default: hidden,
@@ -1984,10 +1932,13 @@ function bindEvents() {
     }
   });
   els.runGrantScriptBtn?.addEventListener("click", () => runGrantScript());
-  els.syncTerminalBtn?.addEventListener("click", () => syncCacheViaTerminal());
-  els.settingsSyncTerminalBtn?.addEventListener("click", () => syncCacheViaTerminal());
-  els.refreshCacheBtn?.addEventListener("click", () => refreshMessagesCache());
-  els.settingsRefreshCacheBtn?.addEventListener("click", () => refreshMessagesCache());
+  els.syncCacheBtn?.addEventListener("click", () => syncMessagesCache());
+  els.settingsSyncCacheBtn?.addEventListener("click", () => syncMessagesCache());
+  document.querySelectorAll('input[name="cache-sync-method"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      persistSettingsPatch({ cache_sync_method: selectedCacheSyncMethod() });
+    });
+  });
   els.recheckPermissionsBtn?.addEventListener("click", async () => {
     try {
       const [health] = await Promise.all([
@@ -2079,7 +2030,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.20";
+    state.appVersion = health.version || state.appVersion || "1.0.21";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

@@ -224,15 +224,13 @@ def build_diagnostics() -> dict[str, Any]:
     next_steps: list[str] = []
     if not messages.get("readable"):
         next_steps.append(
-            "On macOS Tahoe: enable Full Disk Access for Terminal.app, then use Sync via Terminal."
+            "Enable Full Disk Access for Python.app, then Sync cache (Settings → Python method)."
         )
         next_steps.append(
-            "Also try MessageManager.app FDA (toggle off/on), quit, and reopen."
+            "Or switch cache sync method to Terminal / MessageManager in Settings."
         )
         if runtime.get("fda_target"):
-            next_steps.append(
-                f"Optional: enable {_short_path(runtime.get('fda_target'))} for Python fallback."
-            )
+            next_steps.append(f"Python FDA target: {_short_path(runtime.get('fda_target'))}.")
         if not probes["messages_live_db"].get("exists") and not probes[
             "messages_cache_db"
         ].get("exists"):

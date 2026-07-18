@@ -41,6 +41,7 @@ from app.diagnostics import (
 )
 from app.cache_refresh import (
     cache_status,
+    open_python_sync,
     open_terminal_sync,
     progress_file_path,
     refresh_caches,
@@ -405,12 +406,7 @@ def api_cache_progress() -> dict:
 
 @app.post("/api/cache/sync-via-terminal")
 def api_cache_sync_via_terminal() -> dict:
-    """
-    Open Terminal.app to copy Messages into the cache using Terminal's FDA.
-
-    On macOS Tahoe, MessageManager.app FDA often fails (exit 2) while Terminal FDA
-    still works — matching the earlier “run from Terminal” setup on that Mac.
-    """
+    """Open Terminal.app to copy Messages into the cache using Terminal's FDA."""
     try:
         return open_terminal_sync()
     except FileNotFoundError as exc:
@@ -419,8 +415,24 @@ def api_cache_sync_via_terminal() -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.post("/api/cache/sync-via-python")
+def api_cache_sync_via_python() -> dict:
+    """Start Framework Python copy using Python.app Full Disk Access."""
+    try:
+        return open_python_sync()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/api/cache/refresh")
-def api_cache_refresh_stream() -> StreamingResponse:
+def api_cache_refresh_stream(
+    method: Optional[str] = Query(
+        default=None,
+        description="python | terminal | app (default: saved setting)",
+    ),
+) -> StreamingResponse:
     """Re-copy Messages (+ Contacts) into the local cache with progress events."""
 
     def generate():
@@ -431,7 +443,7 @@ def api_cache_refresh_stream() -> StreamingResponse:
 
         def worker() -> None:
             try:
-                result = refresh_caches(progress=progress)
+                result = refresh_caches(progress=progress, method=method)
                 # Invalidate contacts name cache so the new AddressBook copy is used.
                 try:
                     from app.contacts import refresh_contacts

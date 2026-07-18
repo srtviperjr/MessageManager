@@ -134,16 +134,41 @@ def copy_contacts() -> None:
         copy_trio(src, dst_dir / "AddressBook-v22.abcddb", f"Contacts/{child.name[:8]}", start, end)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    method = (os.environ.get("MESSAGEMANAGER_SYNC_METHOD") or "").strip().lower()
+    if "--method" in argv:
+        idx = argv.index("--method")
+        if idx + 1 < len(argv):
+            method = argv[idx + 1].strip().lower()
+    if method not in {"python", "terminal"}:
+        method = "terminal"
+    if method == "python":
+        title = "MessageManager — Python cache sync"
+        hint = (
+            "Uses Full Disk Access from Python.app (python.org Framework).\n"
+            "If this fails: System Settings → Privacy & Security → Full Disk Access\n"
+            "→ enable Python, quit MessageManager, reopen, and retry."
+        )
+        start_msg = "Starting Python cache sync…"
+        fda_name = "Python.app"
+    else:
+        title = "MessageManager — Terminal cache sync"
+        hint = (
+            "Uses Full Disk Access from THIS Terminal app (not MessageManager.app).\n"
+            "If this fails: System Settings → Privacy & Security → Full Disk Access\n"
+            "→ enable Terminal (or iTerm), quit Terminal, reopen, run again."
+        )
+        start_msg = "Starting Terminal cache sync…"
+        fda_name = "Terminal.app"
+
     print()
-    print("MessageManager — Terminal cache sync")
-    print("====================================")
-    print("Uses Full Disk Access from THIS Terminal app (not MessageManager.app).")
-    print("If this fails: System Settings → Privacy & Security → Full Disk Access")
-    print("→ enable Terminal (or iTerm), quit Terminal, reopen, run again.")
+    print(title)
+    print("=" * len(title))
+    print(hint)
     print()
 
-    report("Starting Terminal cache sync…", 1)
+    report(start_msg, 1)
     if not LIVE_DB.is_file():
         report(
             "Messages database not found",
@@ -163,8 +188,8 @@ def main() -> int:
             0,
             done=True,
             error=(
-                "Terminal does not have Full Disk Access. Enable FDA for Terminal.app, "
-                "fully quit Terminal, reopen, and run this again."
+                f"{fda_name} does not have Full Disk Access. Enable FDA for {fda_name}, "
+                "fully quit related apps, reopen, and run this again."
             ),
         )
         return 2
@@ -181,7 +206,16 @@ def main() -> int:
             print("Contacts copy skipped (permission denied).", flush=True)
         except OSError as exc:
             print(f"Contacts copy skipped: {exc}", flush=True)
-        report(f"Cache sync complete ({fmt(size)})", 100, done=True)
+        # Tag method in the progress file for the UI.
+        payload = {
+            "message": f"Cache sync complete ({fmt(size)})",
+            "percent": 100,
+            "done": True,
+            "method": method,
+            "ok": True,
+        }
+        PROGRESS.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        print(f"[100%] Cache sync complete ({fmt(size)})", flush=True)
         print()
         print(f"Wrote: {MSG_CACHE / 'chat.db'}")
         print("Return to MessageManager and press Recheck / Start loading.")
@@ -192,7 +226,7 @@ def main() -> int:
             "Permission denied during copy",
             0,
             done=True,
-            error="Full Disk Access missing for this Terminal. Enable it, quit Terminal, retry.",
+            error=f"Full Disk Access missing for {fda_name}. Enable it, quit, and retry.",
         )
         return 2
     except OSError as exc:

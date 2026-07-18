@@ -1056,6 +1056,23 @@ button.messages-count-btn:disabled {
   color: var(--ink);
 }
 
+.settings-fieldset {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.settings-fieldset legend {
+  padding: 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
 .settings-checks {
   display: flex;
   flex-direction: column;

@@ -28,6 +28,8 @@ def default_settings() -> dict[str, Any]:
         "thread_activity_unit": "months",  # months | years
         "auto_load_on_start": False,
         "default_message_limit": 10,
+        # python | terminal | app — how to re-copy Messages into the local cache
+        "cache_sync_method": "python",
         "custom_categories": [],
         "enabled_categories": list(BUILTIN_CATEGORIES),
         "hidden_from_default": ["ignore"],
@@ -125,6 +127,11 @@ def _normalize(settings: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         msg_limit = 10
     merged["default_message_limit"] = max(1, min(msg_limit, 500))
+
+    sync_method = str(merged.get("cache_sync_method") or "python").lower()
+    merged["cache_sync_method"] = (
+        sync_method if sync_method in {"python", "terminal", "app"} else "python"
+    )
 
     shortcut = str(merged.get("apple_intelligence_shortcut") or "").strip()
     merged["apple_intelligence_shortcut"] = shortcut or "MessageManager Summarize"

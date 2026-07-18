@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260718a" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260718b" />
   </head>
   <body>
     <div class="app">
@@ -18,7 +18,7 @@
         <header class="brand">
           <div class="brand-row">
             <div>
-              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.20</span></span></h1>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.21</span></span></h1>
             </div>
             <button
               type="button"
@@ -99,18 +99,14 @@
         <div id="permissions-card" class="permissions-card hidden">
           <p class="permissions-title">Permissions needed</p>
           <p id="permissions-text" class="permissions-text">
-            On newer macOS, enable Full Disk Access for Terminal, then Sync via Terminal.
+            Enable Full Disk Access for Python, then Sync cache. Change method in Settings if needed.
           </p>
           <div class="access-checklist-scroll">
             <ul id="access-checklist" class="access-checklist" aria-label="Access checklist"></ul>
           </div>
           <div class="permissions-actions">
-            <button type="button" id="sync-terminal-btn" class="primary load-btn">Sync via Terminal</button>
-            <button type="button" id="refresh-cache-btn" class="settings-cancel">Refresh cache</button>
+            <button type="button" id="sync-cache-btn" class="primary load-btn">Sync cache</button>
             <button type="button" id="recheck-permissions-btn" class="settings-cancel">Recheck</button>
-          </div>
-          <div class="permissions-actions">
-            <button type="button" id="run-grant-script-btn" class="settings-cancel">Grant script</button>
             <button type="button" id="open-privacy-btn" class="settings-cancel">Privacy Settings</button>
           </div>
           <p id="cache-refresh-status" class="permissions-text hidden" aria-live="polite"></p>
@@ -256,21 +252,36 @@
           <section class="settings-section">
             <h3>Access &amp; troubleshooting</h3>
             <p class="settings-help">
-              On macOS Tahoe, grant Full Disk Access to <strong>Terminal</strong> (not only MessageManager),
-              then use <strong>Sync via Terminal</strong>. Large Messages databases can take several minutes.
+              Choose how to copy Messages into the local cache. On newer macOS,
+              <strong>Python</strong> is usually more reliable than MessageManager.app.
+              Large databases can take several minutes.
             </p>
+            <fieldset class="settings-fieldset">
+              <legend>Cache sync method</legend>
+              <label class="settings-check">
+                <input type="radio" name="cache-sync-method" value="python" id="setting-sync-python" checked />
+                <span>Python.app (recommended)</span>
+              </label>
+              <label class="settings-check">
+                <input type="radio" name="cache-sync-method" value="terminal" id="setting-sync-terminal" />
+                <span>Terminal.app</span>
+              </label>
+              <label class="settings-check">
+                <input type="radio" name="cache-sync-method" value="app" id="setting-sync-app" />
+                <span>MessageManager.app</span>
+              </label>
+            </fieldset>
             <p id="settings-cache-meta" class="settings-help"></p>
             <div class="access-checklist-scroll settings-checklist-scroll">
               <ul id="settings-access-checklist" class="access-checklist"></ul>
             </div>
             <p id="settings-access-detail" class="settings-help"></p>
             <div class="permissions-actions">
-              <button type="button" id="settings-sync-terminal-btn" class="primary">Sync via Terminal</button>
-              <button type="button" id="settings-refresh-cache-btn" class="settings-cancel">Refresh cache</button>
+              <button type="button" id="settings-sync-cache-btn" class="primary">Sync cache</button>
               <button type="button" id="settings-recheck-access-btn" class="settings-cancel">Recheck access</button>
             </div>
             <div class="permissions-actions">
-              <button type="button" id="settings-run-grant-btn" class="settings-cancel">Run grant script</button>
+              <button type="button" id="settings-run-grant-btn" class="settings-cancel">Open FDA helper</button>
             </div>
             <div class="permissions-actions">
               <button type="button" id="settings-copy-bundle-btn" class="settings-cancel">Copy support bundle</button>
@@ -280,7 +291,7 @@
 
           <section class="settings-section">
             <h3>Updates</h3>
-            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.20</strong></p>
+            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.21</strong></p>
             <p id="update-status" class="settings-help">Checking for updates…</p>
             <div class="permissions-actions">
               <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
@@ -380,6 +391,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=20260718a"></script>
+    <script src="/static/app.js?v=20260718b"></script>
   </body>
 </html>
