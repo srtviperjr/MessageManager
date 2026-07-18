@@ -71,6 +71,13 @@ const els = {
   statusProgressWrap: document.getElementById("status-progress-wrap"),
   statusProgress: document.getElementById("status-progress"),
   openLogsBtn: document.getElementById("open-logs-btn"),
+  logsModal: document.getElementById("logs-modal"),
+  logsFileSelect: document.getElementById("logs-file-select"),
+  logsRefreshBtn: document.getElementById("logs-refresh-btn"),
+  logsCopyBtn: document.getElementById("logs-copy-btn"),
+  logsMeta: document.getElementById("logs-meta"),
+  logsContent: document.getElementById("logs-content"),
+  copySummaryBtn: document.getElementById("copy-summary-btn"),
   quitAppBtn: document.getElementById("quit-app-btn"),
   threadLimit: document.getElementById("thread-limit"),
   threadLimitValue: document.getElementById("thread-limit-value"),
@@ -112,7 +119,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.4";
+state.appVersion = "1.0.5";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -1002,6 +1009,7 @@ async function summarizeSelected() {
       .map((h) => `<li>${escapeHtml(h)}</li>`)
       .join("");
     els.summaryPanel.classList.remove("hidden");
+    if (els.copySummaryBtn) els.copySummaryBtn.disabled = false;
     clearStatus(
       result.used_apple_intelligence
         ? `Summary ready · last ${result.days || days} days · Apple Intelligence`
@@ -1014,6 +1022,7 @@ async function summarizeSelected() {
     els.summaryTopics.innerHTML = "";
     els.summaryHighlights.innerHTML = "";
     els.summaryPanel.classList.remove("hidden");
+    if (els.copySummaryBtn) els.copySummaryBtn.disabled = true;
     clearStatus("Summary failed");
   } finally {
     els.summarizeBtn.disabled = false;
@@ -1151,6 +1160,102 @@ function openSettingsModal() {
 
 function closeSettingsModal() {
   els.settingsModal?.classList.add("hidden");
+}
+
+async function openLogsModal() {
+  if (!els.logsModal) return;
+  els.logsModal.classList.remove("hidden");
+  if (els.logsContent) els.logsContent.textContent = "Loading…";
+  try {
+    const data = await api("/api/logs");
+    const files = data.files || [];
+    if (els.logsFileSelect) {
+      const previous = els.logsFileSelect.value;
+      els.logsFileSelect.innerHTML = files
+        .map((f) => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`)
+        .join("");
+      if (!files.length) {
+        els.logsFileSelect.innerHTML = `<option value="">No log files yet</option>`;
+      } else if (previous && files.some((f) => f.name === previous)) {
+        els.logsFileSelect.value = previous;
+      } else {
+        const preferred =
+          files.find((f) => f.name === "launch.log") ||
+          files.find((f) => f.name === "app.log") ||
+          files[0];
+        els.logsFileSelect.value = preferred.name;
+      }
+    }
+    if (els.logsMeta) {
+      els.logsMeta.textContent = data.log_dir
+        ? `Folder: ${data.log_dir}`
+        : "";
+    }
+    await refreshLogContents();
+  } catch (err) {
+    if (els.logsContent) {
+      els.logsContent.textContent = err.message || "Could not load logs";
+    }
+  }
+}
+
+function closeLogsModal() {
+  els.logsModal?.classList.add("hidden");
+}
+
+async function refreshLogContents() {
+  const name = els.logsFileSelect?.value;
+  if (!name) {
+    if (els.logsContent) els.logsContent.textContent = "No log selected.";
+    return;
+  }
+  if (els.logsContent) els.logsContent.textContent = "Loading…";
+  try {
+    const data = await api(`/api/logs/${encodeURIComponent(name)}?tail=800`);
+    if (els.logsContent) els.logsContent.textContent = data.content || "(empty)";
+    if (els.logsMeta) {
+      const trunc = data.truncated ? ` · showing last ${data.returned_lines} of ${data.total_lines} lines` : "";
+      els.logsMeta.textContent = `${data.path || name}${trunc}`;
+    }
+    if (els.logsContent) els.logsContent.scrollTop = els.logsContent.scrollHeight;
+  } catch (err) {
+    if (els.logsContent) {
+      els.logsContent.textContent = err.message || "Could not read log";
+    }
+  }
+}
+
+async function copySummary() {
+  const summary = (els.summaryText?.textContent || "").trim();
+  if (!summary) {
+    clearStatus("No summary to copy");
+    return;
+  }
+  const topics = [...(els.summaryTopics?.querySelectorAll("li") || [])]
+    .map((li) => li.textContent.trim())
+    .filter(Boolean);
+  const highlights = [...(els.summaryHighlights?.querySelectorAll("li") || [])]
+    .map((li) => li.textContent.trim())
+    .filter(Boolean);
+  const parts = [summary];
+  if (topics.length) parts.push("", "Topics:", ...topics.map((t) => `• ${t}`));
+  if (highlights.length) {
+    parts.push("", "Highlights:", ...highlights.map((h, i) => `${i + 1}. ${h}`));
+  }
+  const text = parts.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    if (els.copySummaryBtn) {
+      const prev = els.copySummaryBtn.textContent;
+      els.copySummaryBtn.textContent = "Copied";
+      setTimeout(() => {
+        if (els.copySummaryBtn) els.copySummaryBtn.textContent = prev || "Copy";
+      }, 1200);
+    }
+    clearStatus("Summary copied");
+  } catch {
+    clearStatus("Could not copy summary");
+  }
 }
 
 function renderSettingsCategoryLists() {
@@ -1531,19 +1636,23 @@ function bindEvents() {
     }
   });
 
-  els.openLogsBtn.addEventListener("click", () => {
-    const logs = state.logs || {};
-    const lines = [
-      "MessageManager log files:",
-      logs.app_log || "(app.log path unknown)",
-      logs.launch_log || "(launch.log path unknown)",
-      "",
-      "In Finder: Go → Go to Folder… and paste:",
-      logs.log_dir || "~/Library/Application Support/MessageManager/logs",
-    ];
-    alert(lines.join("\n"));
-    clearStatus(`Logs: ${logs.log_dir || "see alert"}`);
+  els.openLogsBtn?.addEventListener("click", () => openLogsModal());
+  els.logsRefreshBtn?.addEventListener("click", () => refreshLogContents());
+  els.logsCopyBtn?.addEventListener("click", async () => {
+    const text = els.logsContent?.textContent || "";
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      clearStatus("Log copied to clipboard");
+    } catch {
+      clearStatus("Could not copy log");
+    }
   });
+  els.logsFileSelect?.addEventListener("change", () => refreshLogContents());
+  document.querySelectorAll("[data-close-logs]").forEach((el) => {
+    el.addEventListener("click", () => closeLogsModal());
+  });
+  els.copySummaryBtn?.addEventListener("click", () => copySummary());
 
   els.quitAppBtn?.addEventListener("click", async () => {
     if (!confirm("Stop MessageManager and close the local server?")) return;
@@ -1563,7 +1672,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.4";
+    state.appVersion = health.version || state.appVersion || "1.0.5";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

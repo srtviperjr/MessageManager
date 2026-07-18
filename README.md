@@ -113,7 +113,7 @@ On every launch, MessageManager checks GitHub Releases and prompts if a newer ve
 To publish a release:
 
 ```bash
-gh release create v1.0.4 dist/MessageManager.pkg --title "MessageManager 1.0.4" --notes "Release 1.0.4"
+gh release create v1.0.5 dist/MessageManager.pkg --title "MessageManager 1.0.5" --notes "Release 1.0.5"
 ```
 
 ### Dev / direct `.app` copy

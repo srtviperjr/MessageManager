@@ -34,6 +34,7 @@ from app.imessage import (
     list_threads,
 )
 from app.logging_util import configure_logging, get_logger, log_dir, log_file_path
+from app.logs_api import list_log_files, read_log_file
 from app.migrations import run_migrations
 from app.platform_info import platform_status
 from app.runtime_info import runtime_status
@@ -278,6 +279,26 @@ def api_updates_download(body: UpdateDownloadRequest) -> dict:
         except Exception:  # noqa: BLE001
             log.exception("Could not open downloaded installer")
     return result
+
+
+@app.get("/api/logs")
+def api_logs() -> dict:
+    return list_log_files()
+
+
+@app.get("/api/logs/{name}")
+def api_log_contents(
+    name: str,
+    tail: int = Query(default=400, ge=50, le=5000),
+) -> dict:
+    try:
+        return read_log_file(name, tail_lines=tail)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/permissions/open-settings")

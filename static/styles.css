@@ -1098,6 +1098,63 @@ button.messages-count-btn:disabled {
   font-size: 1.25rem;
 }
 
+.summary-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.logs-panel {
+  width: min(820px, 100%);
+  max-height: min(88vh, 860px);
+  display: flex;
+  flex-direction: column;
+}
+
+.logs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.55rem;
+  margin-bottom: 0.45rem;
+}
+
+.logs-file-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 12rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.logs-file-field select {
+  font: inherit;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+.logs-content {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 280px;
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #1c2430;
+  color: #e8eef6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .pill {
   padding: 0.2rem 0.55rem;
   border-radius: 999px;

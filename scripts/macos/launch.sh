@@ -211,22 +211,60 @@ stop_server() {
   fi
 }
 
+can_read_messages_db() {
+  local py="$1"
+  [[ -x "${py}" ]] || return 1
+  "${py}" - <<'PY' >/dev/null 2>&1
+from pathlib import Path
+import shutil, tempfile
+src = Path.home() / "Library" / "Messages" / "chat.db"
+if not src.exists():
+    raise SystemExit(0)
+td = Path(tempfile.mkdtemp())
+try:
+    shutil.copy2(src, td / "chat.db")
+except PermissionError:
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+}
+
 start_server() {
-  local want have
-  want="$(bundled_version)"
-  if server_up; then
-    have="$(running_version)"
-    if [[ -n "${want}" && -n "${have}" && "${want}" == "${have}" ]]; then
-      log "Server already running (v${have})"
-      return
-    fi
-    log "Restarting server (running v${have:-unknown}, app bundle v${want:-unknown})"
-    stop_server
-  else
-    stop_server
+  # Always restart so upgrades / FDA / Python switches take effect immediately.
+  # Reusing a stale CLT Python server was leaving chat.db unreadable after install.
+  stop_server
+
+  if [[ -x "${VENV}/bin/python" ]] && python_usable "${VENV}/bin/python"; then
+    PYTHON_BIN="${VENV}/bin/python"
   fi
 
-  log "Starting server on ${PORT} with ${PYTHON_BIN}"
+  if ! can_read_messages_db "${PYTHON_BIN}"; then
+    log "WARN: ${PYTHON_BIN} cannot read chat.db — preferring Framework Python + fresh venv"
+    local framework
+    if framework="$(
+      for c in \
+        /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.10/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.9/bin/python3
+      do
+        if python_usable "${c}"; then echo "${c}"; exit 0; fi
+      done
+      exit 1
+    )"; then
+      rm -rf "${VENV}"
+      if "${framework}" -m venv "${VENV}" >>"${LOG_FILE}" 2>&1 \
+        && [[ -x "${VENV}/bin/python" ]]; then
+        PYTHON_BIN="${VENV}/bin/python"
+        "${PYTHON_BIN}" -m pip install --upgrade pip >/dev/null 2>&1 || true
+        "${PYTHON_BIN}" -m pip install -r "${ROOT}/requirements.txt" >>"${LOG_FILE}" 2>&1 || true
+        log "Recreated venv with ${framework}"
+      fi
+    fi
+  fi
+
+  log "Starting server on ${PORT} with ${PYTHON_BIN} (bundle v$(bundled_version))"
   (
     cd "${ROOT}"
     if [[ -n "${THREAD_LEDGER_PYTHONPATH:-}" ]]; then
@@ -241,7 +279,7 @@ start_server() {
 
   for _ in $(seq 1 40); do
     if server_up; then
-      log "Server ready v$(running_version) (pid $(cat "${PID_FILE}" 2>/dev/null || echo '?'))"
+      log "Server ready v$(running_version) via ${PYTHON_BIN} (pid $(cat "${PID_FILE}" 2>/dev/null || echo '?'))"
       return
     fi
     sleep 0.25

@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260717n" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260717p" />
   </head>
   <body>
     <div class="app">
@@ -18,7 +18,7 @@
         <header class="brand">
           <div class="brand-row">
             <div>
-              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.4</span></span></h1>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.5</span></span></h1>
             </div>
             <button
               type="button"
@@ -149,7 +149,12 @@
           <div id="summary-panel" class="summary-panel hidden">
             <div class="summary-head">
               <h3>Summary</h3>
-              <span id="summary-method" class="pill">Local extractive</span>
+              <div class="summary-head-actions">
+                <span id="summary-method" class="pill">Local extractive</span>
+                <button type="button" id="copy-summary-btn" class="status-log-btn" title="Copy summary">
+                  Copy
+                </button>
+              </div>
             </div>
             <p id="summary-meta" class="summary-meta"></p>
             <p id="summary-text"></p>
@@ -187,7 +192,7 @@
         </div>
         <span id="status-text">Ready</span>
         <span id="status-percent" class="status-percent hidden"></span>
-        <button id="open-logs-btn" class="status-log-btn" type="button" title="Show log file paths">
+        <button id="open-logs-btn" class="status-log-btn" type="button" title="View MessageManager logs">
           Logs
         </button>
         <button id="quit-app-btn" class="status-log-btn status-quit-btn" type="button" title="Stop the local MessageManager server">
@@ -203,6 +208,26 @@
       <button type="button" data-load-messages="all" role="menuitem">Load all</button>
     </div>
 
+    <div id="logs-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="logs-title">
+      <div class="settings-backdrop" data-close-logs></div>
+      <div class="settings-panel logs-panel">
+        <header class="settings-head">
+          <h2 id="logs-title">Logs</h2>
+          <button type="button" class="icon-btn" data-close-logs aria-label="Close logs">✕</button>
+        </header>
+        <div class="logs-toolbar">
+          <label class="logs-file-field">
+            <span>File</span>
+            <select id="logs-file-select"></select>
+          </label>
+          <button type="button" id="logs-refresh-btn" class="settings-cancel">Refresh</button>
+          <button type="button" id="logs-copy-btn" class="settings-cancel">Copy</button>
+        </div>
+        <p id="logs-meta" class="settings-help"></p>
+        <pre id="logs-content" class="logs-content" tabindex="0">Loading…</pre>
+      </div>
+    </div>
+
     <div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="settings-backdrop" data-close-settings></div>
       <div class="settings-panel">
@@ -213,7 +238,7 @@
         <form id="settings-form" class="settings-form">
           <section class="settings-section">
             <h3>Updates</h3>
-            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.4</strong></p>
+            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.5</strong></p>
             <p id="update-status" class="settings-help">Checking for updates…</p>
             <div class="permissions-actions">
               <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
@@ -313,6 +338,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=20260717n"></script>
+    <script src="/static/app.js?v=20260717p"></script>
   </body>
 </html>

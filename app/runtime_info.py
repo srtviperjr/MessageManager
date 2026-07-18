@@ -32,30 +32,47 @@ def _venv_home(executable: Path) -> Optional[Path]:
     return None
 
 
+def _resources_python_app(bin_or_home: Path) -> Optional[Path]:
+    """Resolve .../Versions/X.Y/Resources/Python.app from a bin/ or home path."""
+    candidates = [
+        bin_or_home / "Resources" / "Python.app",
+        bin_or_home.parent / "Resources" / "Python.app",
+        bin_or_home.parent.parent / "Resources" / "Python.app",
+    ]
+    for app in candidates:
+        if app.is_dir():
+            return app
+    return None
+
+
 def python_fda_target(executable: Optional[str] = None) -> Optional[str]:
     """Best path to add in Full Disk Access for the running interpreter."""
-    exe = Path(executable or sys.executable)
+    exe = Path(executable or sys.executable).resolve()
     app = _python_app_from_path(exe)
     if app:
         return str(app)
 
     home = _venv_home(exe)
     if home:
-        # home is typically .../bin — climb to Python.app if present
-        app = _python_app_from_path(home)
+        app = _python_app_from_path(home) or _resources_python_app(home)
         if app:
             return str(app)
-        # Official python.org layout: .../Versions/3.x/bin -> Resources/Python.app
-        resources_app = home.parent / "Resources" / "Python.app"
-        if resources_app.is_dir():
-            return str(resources_app)
-        # CLT layout already handled via Python.app in path; fall back to home/python3
-        candidate = home / "python3"
-        if candidate.exists():
-            return str(candidate)
+
+    app = _resources_python_app(exe.parent)
+    if app:
+        return str(app)
+
+    # Prefer python.org Framework Python.app when present — that is what the
+    # packaged launcher should run after recreating the venv.
+    for version in ("3.13", "3.12", "3.11", "3.10", "3.9"):
+        preferred = Path(
+            f"/Library/Frameworks/Python.framework/Versions/{version}/Resources/Python.app"
+        )
+        if preferred.is_dir():
+            return str(preferred)
 
     if exe.exists():
-        return str(exe.resolve())
+        return str(exe)
     return None
 
 
