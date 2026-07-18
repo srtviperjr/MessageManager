@@ -54,9 +54,11 @@ rsync -a \
   --exclude 'logs' \
   "${ROOT}/" "${APP_PAYLOAD}/"
 
-# Native Mach-O executable so Full Disk Access applies to MessageManager.app.
-# (A shell-script CFBundleExecutable cannot read ~/Library/Messages for Python.)
-clang -Os -arch arm64 -arch x86_64 -o "${MACOS}/${APP_NAME}" "${ROOT}/scripts/macos/launcher.c"
+# Native AppKit executable so Full Disk Access applies AND the Dock bounce stops.
+# (execl→bash made macOS think the app never finished launching.)
+clang -Os -arch arm64 -arch x86_64 \
+  -framework AppKit -framework Foundation \
+  -o "${MACOS}/${APP_NAME}" "${ROOT}/scripts/macos/launcher.m"
 chmod +x "${MACOS}/${APP_NAME}"
 chmod +x "${APP_PAYLOAD}/scripts/macos/launch.sh"
 

@@ -350,8 +350,14 @@ sleep 0.35
 open "${URL}" || true
 osascript -e "display notification \"MessageManager is ready\" with title \"MessageManager\"" >/dev/null 2>&1 || true
 
-# AppleScript display dialogs often fail or auto-dismiss from a shell .app.
-# Prefer headless keep-alive; users can Quit from the browser footer.
+# Native AppKit launcher owns the Dock process + Quit window. In that mode we
+# only bootstrap the server/UI, then exit so the parent keeps running.
+if [[ "${THREAD_LEDGER_MANAGED:-}" == "1" ]]; then
+  log "Managed launch complete — AppKit parent will keep the app alive"
+  exit 0
+fi
+
+# Legacy / direct launch.sh: keep a process alive until the server stops.
 if run_keepalive; then
   stop_server
   log "Quit via keep-alive window"
