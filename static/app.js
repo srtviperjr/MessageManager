@@ -110,8 +110,20 @@ const els = {
   settingsCurrentVersion: document.getElementById("settings-current-version"),
   permissionsCard: document.getElementById("permissions-card"),
   permissionsText: document.getElementById("permissions-text"),
+  accessChecklist: document.getElementById("access-checklist"),
+  copySupportBundleBtn: document.getElementById("copy-support-bundle-btn"),
+  exportSupportBundleBtn: document.getElementById("export-support-bundle-btn"),
+  openAccessLogsBtn: document.getElementById("open-access-logs-btn"),
   openPrivacyBtn: document.getElementById("open-privacy-btn"),
   recheckPermissionsBtn: document.getElementById("recheck-permissions-btn"),
+  settingsAccessChecklist: document.getElementById("settings-access-checklist"),
+  settingsAccessDetail: document.getElementById("settings-access-detail"),
+  settingsRecheckAccessBtn: document.getElementById("settings-recheck-access-btn"),
+  settingsCopyBundleBtn: document.getElementById("settings-copy-bundle-btn"),
+  settingsExportBundleBtn: document.getElementById("settings-export-bundle-btn"),
+  accessDiagSummary: document.getElementById("access-diag-summary"),
+  logsCopyBundleBtn: document.getElementById("logs-copy-bundle-btn"),
+  logsExportBundleBtn: document.getElementById("logs-export-bundle-btn"),
   updateBanner: document.getElementById("update-banner"),
   updateBannerText: document.getElementById("update-banner-text"),
   updateBannerBtn: document.getElementById("update-banner-btn"),
@@ -120,8 +132,9 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.15";
+state.appVersion = "1.0.16";
 state.updateInfo = null;
+state.diagnostics = null;
 
 function formatWhen(iso) {
   if (!iso) return "";
@@ -1062,6 +1075,88 @@ async function summarizeSelected() {
   }
 }
 
+function renderChecklist(target, checklist) {
+  if (!target) return;
+  const items = Array.isArray(checklist) ? checklist : [];
+  if (!items.length) {
+    target.innerHTML = "";
+    return;
+  }
+  target.innerHTML = items
+    .map((item) => {
+      const ok = !!item.ok;
+      return `<li class="${ok ? "ok" : "fail"}">
+        <span class="check-mark">${ok ? "OK" : "FAIL"}</span>
+        <span class="check-label">${escapeHtml(item.label || "")}</span>
+        <span class="check-detail">${escapeHtml(item.detail || "")}</span>
+      </li>`;
+    })
+    .join("");
+}
+
+function renderAccessDiagnostics(diag) {
+  state.diagnostics = diag || null;
+  const checklist = diag?.checklist || [];
+  renderChecklist(els.accessChecklist, checklist);
+  renderChecklist(els.settingsAccessChecklist, checklist);
+  if (els.settingsAccessDetail) {
+    const steps = (diag?.next_steps || []).filter(Boolean);
+    els.settingsAccessDetail.textContent = steps.length
+      ? steps.join(" ")
+      : diag?.summary
+        ? String(diag.summary).split("\n").slice(0, 3).join(" ")
+        : "";
+  }
+  if (els.accessDiagSummary) {
+    const summary = (diag?.summary || "").trim();
+    els.accessDiagSummary.textContent = summary;
+    els.accessDiagSummary.classList.toggle("hidden", !summary);
+  }
+}
+
+async function refreshDiagnostics({ quiet = false } = {}) {
+  try {
+    const diag = await api("/api/diagnostics");
+    renderAccessDiagnostics(diag);
+    return diag;
+  } catch (err) {
+    if (!quiet) clearStatus(err.message || "Could not load diagnostics");
+    return null;
+  }
+}
+
+async function copySupportBundle() {
+  try {
+    const data = await api("/api/diagnostics/bundle");
+    const text = data.content || "";
+    if (!text) {
+      clearStatus("Support bundle was empty");
+      return false;
+    }
+    await navigator.clipboard.writeText(text);
+    clearStatus("Support bundle copied — paste into email or chat");
+    return true;
+  } catch (err) {
+    clearStatus(err.message || "Could not copy support bundle");
+    return false;
+  }
+}
+
+async function exportSupportBundle() {
+  try {
+    const data = await api("/api/diagnostics/export", { method: "POST" });
+    clearStatus(
+      data.path
+        ? `Support bundle saved: ${data.path}`
+        : data.detail || "Support bundle exported to Downloads"
+    );
+    return data;
+  } catch (err) {
+    clearStatus(err.message || "Could not export support bundle");
+    return null;
+  }
+}
+
 function renderPermissions(permissions, messages, contacts) {
   // Only prompt when Messages are unreadable. Never nag once access already works.
   const show = messages?.readable === false || permissions?.needs_attention === true;
@@ -1073,11 +1168,17 @@ function renderPermissions(permissions, messages, contacts) {
   els.permissionsCard.classList.toggle("hidden", !show);
   if (!show) return;
   const parts = [
-    "Messages database is not readable yet. Enable Full Disk Access for MessageManager, then quit and reopen.",
+    "Messages database is not readable yet. Enable Full Disk Access for MessageManager.app, fully quit, then reopen.",
   ];
   if (permissions?.guidance) parts.push(permissions.guidance);
+  if (messages?.error) parts.push(messages.error);
   if (els.permissionsText) {
     els.permissionsText.textContent = parts.join(" ");
+  }
+  if (state.diagnostics?.checklist) {
+    renderChecklist(els.accessChecklist, state.diagnostics.checklist);
+  } else {
+    refreshDiagnostics({ quiet: true });
   }
 }
 
@@ -1212,6 +1313,7 @@ function openSettingsModal() {
     els.settingsCurrentVersion.textContent = state.appVersion;
   }
   checkForUpdates({ quiet: true });
+  refreshDiagnostics({ quiet: true });
   els.settingsModal.classList.remove("hidden");
 }
 
@@ -1223,6 +1325,7 @@ async function openLogsModal() {
   if (!els.logsModal) return;
   els.logsModal.classList.remove("hidden");
   if (els.logsContent) els.logsContent.textContent = "Loading…";
+  refreshDiagnostics({ quiet: true });
   try {
     const data = await api("/api/logs");
     const files = data.files || [];
@@ -1689,17 +1792,45 @@ function bindEvents() {
   });
   els.recheckPermissionsBtn?.addEventListener("click", async () => {
     try {
-      const health = await api("/api/health");
+      const [health] = await Promise.all([
+        api("/api/health"),
+        refreshDiagnostics({ quiet: true }),
+      ]);
       renderPermissions(health.permissions, health.messages, health.contacts);
-      if (health.permissions?.needs_attention) {
-        clearStatus("Still missing access — grant Full Disk Access, then recheck");
-      } else {
+      if (health.messages?.readable) {
+        els.accessBanner?.classList.add("hidden");
         clearStatus("Permissions look good");
+        await loadThreads();
+      } else if (health.permissions?.needs_attention) {
+        clearStatus("Still missing access — grant Full Disk Access to MessageManager.app, quit, reopen, then recheck");
+      } else {
+        clearStatus("Still missing access");
       }
     } catch (err) {
       clearStatus(err.message || "Recheck failed");
     }
   });
+  els.copySupportBundleBtn?.addEventListener("click", () => copySupportBundle());
+  els.exportSupportBundleBtn?.addEventListener("click", () => exportSupportBundle());
+  els.openAccessLogsBtn?.addEventListener("click", () => openLogsModal());
+  els.settingsRecheckAccessBtn?.addEventListener("click", async () => {
+    try {
+      const [health] = await Promise.all([
+        api("/api/health"),
+        refreshDiagnostics({ quiet: true }),
+      ]);
+      renderPermissions(health.permissions, health.messages, health.contacts);
+      if (health.messages?.readable) {
+        clearStatus("Messages access OK");
+      } else {
+        clearStatus("Still missing access — see checklist below");
+      }
+    } catch (err) {
+      clearStatus(err.message || "Recheck failed");
+    }
+  });
+  els.settingsCopyBundleBtn?.addEventListener("click", () => copySupportBundle());
+  els.settingsExportBundleBtn?.addEventListener("click", () => exportSupportBundle());
   els.checkUpdatesBtn?.addEventListener("click", async () => {
     const info = await checkForUpdates();
     if (info?.update_available) await promptInstallUpdate(info, { force: true });
@@ -1725,6 +1856,8 @@ function bindEvents() {
       clearStatus("Could not copy log");
     }
   });
+  els.logsCopyBundleBtn?.addEventListener("click", () => copySupportBundle());
+  els.logsExportBundleBtn?.addEventListener("click", () => exportSupportBundle());
   els.logsFileSelect?.addEventListener("change", () => refreshLogContents());
   document.querySelectorAll("[data-close-logs]").forEach((el) => {
     el.addEventListener("click", () => closeLogsModal());
@@ -1749,7 +1882,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.15";
+    state.appVersion = health.version || state.appVersion || "1.0.16";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
@@ -1759,6 +1892,9 @@ async function init() {
     state.appleIntelligence = health.apple_intelligence || null;
     state.platform = health.platform || null;
     state.logs = health.logs || null;
+    if (!health.messages?.readable) {
+      await refreshDiagnostics({ quiet: true });
+    }
     renderPermissions(health.permissions, health.messages, health.contacts);
     if (health.migration?.upgraded) {
       clearStatus(`Upgraded to ${state.appVersion} — data migrations applied`);

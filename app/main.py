@@ -34,6 +34,11 @@ from app.imessage import (
     list_threads,
 )
 from app.logging_util import configure_logging, get_logger, log_dir, log_file_path
+from app.diagnostics import (
+    build_diagnostics,
+    export_support_bundle,
+    format_support_bundle,
+)
 from app.logs_api import list_log_files, read_log_file
 from app.migrations import run_migrations
 from app.platform_info import platform_status
@@ -207,9 +212,16 @@ def health() -> dict:
     messages_ok = bool(messages.get("readable"))
     contacts_ok = bool(contacts.get("available"))
     if not messages_ok:
+        cache_hint = ""
+        if messages.get("cache_db") and not messages.get("using_cache"):
+            cache_hint = (
+                f" Expected cache: {messages.get('cache_db')}."
+            )
         guidance = (
-            "Enable Full Disk Access for MessageManager, then quit and reopen the app. "
-            "The app refreshes a local Messages cache on launch using that permission."
+            "Enable Full Disk Access for MessageManager.app (and usually Python), "
+            "fully quit, then reopen so the launcher can refresh the Messages cache."
+            + cache_hint
+            + " Use Settings → Access & troubleshooting or Logs → Export bundle to share diagnostics."
         )
     else:
         # Access already works (live DB or launcher cache) — do not keep prompting.
@@ -303,6 +315,33 @@ def api_log_contents(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/diagnostics")
+def api_diagnostics() -> dict:
+    """Structured access/runtime diagnostics for troubleshooting."""
+    return build_diagnostics()
+
+
+@app.get("/api/diagnostics/bundle")
+def api_diagnostics_bundle() -> dict:
+    """Plain-text support bundle (summary + JSON + log tails) for copying."""
+    text = format_support_bundle()
+    return {
+        "ok": True,
+        "filename": f"MessageManager-support-{APP_VERSION}.txt",
+        "content": text,
+        "bytes": len(text.encode("utf-8")),
+    }
+
+
+@app.post("/api/diagnostics/export")
+def api_diagnostics_export() -> dict:
+    """Write a support bundle to Downloads and reveal it in Finder."""
+    try:
+        return export_support_bundle()
     except OSError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

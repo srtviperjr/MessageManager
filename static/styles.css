@@ -502,6 +502,69 @@ input {
   gap: 0.45rem;
 }
 
+.access-checklist {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.access-checklist li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.access-checklist .check-mark {
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.access-checklist li.ok .check-mark {
+  color: var(--business);
+}
+
+.access-checklist li.fail .check-mark {
+  color: #9b2c2c;
+}
+
+.access-checklist .check-label {
+  font-weight: 600;
+}
+
+.access-checklist .check-detail {
+  grid-column: 2;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  word-break: break-word;
+}
+
+.access-diag-summary {
+  margin: 0 0 0.75rem;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #f7f3ea;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.access-diag-summary.hidden {
+  display: none;
+}
+
 .update-banner {
   display: flex;
   align-items: center;

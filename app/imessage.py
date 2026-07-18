@@ -509,11 +509,27 @@ def access_status() -> dict[str, Any]:
     if not live_exists and not using_cache and not readable:
         error = error or f"Database not found at {CHAT_DB}"
 
+    cache_db = (cache_dir / "chat.db") if cache_dir else None
+    cache_size = None
+    cache_mtime = None
+    if cache_db is not None and cache_db.is_file():
+        try:
+            stat = cache_db.stat()
+            cache_size = stat.st_size
+            cache_mtime = stat.st_mtime
+        except OSError:
+            pass
+
     return {
         "path": str(CHAT_DB),
         "exists": live_exists or using_cache,
+        "live_exists": live_exists,
         "readable": readable,
         "using_cache": using_cache,
+        "cache_dir": str(cache_dir) if cache_dir else None,
+        "cache_db": str(cache_db) if cache_db else None,
+        "cache_size": cache_size,
+        "cache_mtime": cache_mtime,
         "error": error,
         "uid": os.getuid(),
         "available_threads": available_threads,
