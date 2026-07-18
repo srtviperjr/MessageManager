@@ -54,19 +54,29 @@ def _try_read_messages_db() -> tuple[bool, str]:
 
 def probe_server() -> dict[str, Any]:
     ok, detail = _try_read_messages_db()
+    if ok:
+        note = "Readable (unusual — venv normally uses the local cache)"
+    else:
+        note = (
+            "Expected without live FDA — enable Python.app, then Sync cache. "
+            "The server reads the local cache, not live Messages."
+        )
+        if detail:
+            note = f"{note} ({detail})"
     return _write_probe(
         "server",
         {
-            "label": "MessageManager server (venv Python)",
+            "label": "MessageManager server (venv — uses cache)",
             "ok": ok,
-            "detail": detail,
+            "detail": note,
             "path": str(Path(__import__("sys").executable)),
+            "informational": True,
         },
     )
 
 
 def probe_python() -> dict[str, Any]:
-    script, _cmd = _install_sync_helpers()
+    _script, _cmd = _install_sync_helpers()
     exe, app = _framework_python_launcher()
     runtime = runtime_status()
     if exe is None:
@@ -75,7 +85,10 @@ def probe_python() -> dict[str, Any]:
             {
                 "label": "Python.app",
                 "ok": False,
-                "detail": "python.org Python.app not found",
+                "detail": (
+                    "python.org Python.app not found. Install Python from "
+                    "https://www.python.org/downloads/macos/ then Prepare FDA again."
+                ),
                 "path": runtime.get("fda_target"),
             },
         )
@@ -311,19 +324,43 @@ def probe_all(*, include_terminal: bool = True) -> dict[str, Any]:
     ]
     if include_terminal:
         targets.append(probe_terminal())
+
+    # Prefer Python.app, then MessageManager.app; Terminal only as last resort.
+    preferred_order = ("python", "app", "terminal")
+    recommended = next(
+        (
+            tid
+            for tid in preferred_order
+            for t in targets
+            if t.get("id") == tid and t.get("ok")
+        ),
+        None,
+    )
+    python_ok = any(t.get("id") == "python" and t.get("ok") for t in targets)
+    app_ok = any(t.get("id") == "app" and t.get("ok") for t in targets)
     return {
         "ok": True,
         "live_db": str(LIVE_DB),
         "targets": targets,
         "summary": {
-            "any_ok": any(t.get("ok") for t in targets if t.get("id") != "server"),
-            "recommended": next(
-                (
-                    t["id"]
-                    for t in targets
-                    if t.get("ok") and t.get("id") in {"python", "terminal", "app"}
-                ),
-                None,
+            "any_ok": any(
+                t.get("ok") for t in targets if t.get("id") in preferred_order
+            ),
+            "python_ok": python_ok,
+            "app_ok": app_ok,
+            "recommended": recommended,
+            "clean_path_ready": python_ok or app_ok,
+            "guidance": (
+                "Python.app can read Messages — use Sync cache (Python.app)."
+                if python_ok
+                else (
+                    "MessageManager.app can read Messages — Quit, reopen, or Sync via MessageManager.app."
+                    if app_ok
+                    else (
+                        "Enable Full Disk Access for MessageManager and Python.app "
+                        "(Prepare FDA), then Retest. Avoid relying on Terminal."
+                    )
+                )
             ),
         },
     }

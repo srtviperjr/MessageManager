@@ -1,7 +1,7 @@
 #!/bin/bash
 # Open Full Disk Access settings and reveal the apps macOS needs you to enable.
 # Full Disk Access cannot be granted silently by a script — you still toggle the
-# switches in System Settings, then fully quit and reopen MessageManager.
+# switches in System Settings. Prefer Python.app + MessageManager.app (not Terminal).
 
 set -euo pipefail
 
@@ -14,7 +14,7 @@ echo "MessageManager — Full Disk Access helper"
 echo "========================================"
 echo ""
 echo "macOS does not allow apps to turn on Full Disk Access automatically."
-echo "This script opens the right settings pane and shows which apps to enable."
+echo "Enable MessageManager.app and Python.app (python.org). Terminal is only a workaround."
 echo ""
 
 if [[ ! -d "${APP}" ]]; then
@@ -22,7 +22,7 @@ if [[ ! -d "${APP}" ]]; then
   echo "Install MessageManager to /Applications first, then run this again."
   echo ""
 else
-  echo "1) Enabling targets to add:"
+  echo "1) Targets to enable:"
   echo "   - ${APP}"
 fi
 
@@ -41,17 +41,46 @@ if [[ -n "${FDA_TARGET}" && -e "${FDA_TARGET}" ]]; then
   echo "   - ${FDA_TARGET}"
 fi
 
+# Register apps with TCC so they appear in the Full Disk Access list.
 echo ""
-echo "2) Opening System Settings → Privacy & Security → Full Disk Access…"
+echo "2) Registering apps with macOS (so they show up in the FDA list)…"
+PROBE_DIR="${HOME}/Library/Application Support/MessageManager/logs"
+mkdir -p "${PROBE_DIR}"
+if [[ -x "${APP}/Contents/MacOS/MessageManager" ]]; then
+  "${APP}/Contents/MacOS/MessageManager" --probe-fda "${PROBE_DIR}/fda-register-app.json" \
+    >/dev/null 2>&1 || true
+  echo "   - probed MessageManager.app"
+fi
+PYTHON_BIN=""
+if [[ -n "${FDA_TARGET}" && -x "${FDA_TARGET}/Contents/MacOS/Python" ]]; then
+  PYTHON_BIN="${FDA_TARGET}/Contents/MacOS/Python"
+elif [[ -n "${FDA_TARGET}" && -x "${FDA_TARGET}/Contents/MacOS/python3" ]]; then
+  PYTHON_BIN="${FDA_TARGET}/Contents/MacOS/python3"
+fi
+if [[ -n "${PYTHON_BIN}" ]]; then
+  "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1 || true
+from pathlib import Path
+p = Path.home() / "Library" / "Messages" / "chat.db"
+try:
+    with p.open("rb") as handle:
+        handle.read(1)
+except Exception:
+    pass
+PY
+  echo "   - probed Python.app"
+fi
+
+echo ""
+echo "3) Opening System Settings → Privacy & Security → Full Disk Access…"
 open "${FDA_URL}" 2>/dev/null || open "/System/Library/PreferencePanes/Security.prefPane" || true
 sleep 0.6
 
 if [[ -d "${APP}" ]]; then
-  echo "3) Revealing MessageManager.app in Finder (drag it into the list if needed)…"
+  echo "4) Revealing MessageManager.app in Finder (use + to add it if missing)…"
   open -R "${APP}" || true
 fi
 if [[ -n "${FDA_TARGET}" && -e "${FDA_TARGET}" ]]; then
-  echo "4) Revealing Python target in Finder…"
+  echo "5) Revealing Python.app in Finder…"
   open -R "${FDA_TARGET}" || true
 fi
 
@@ -59,10 +88,11 @@ echo ""
 echo "In Full Disk Access:"
 echo "  • Turn ON MessageManager"
 if [[ -n "${FDA_TARGET}" ]]; then
-  echo "  • Turn ON $(basename "${FDA_TARGET}") (or the Python entry shown in Finder)"
+  echo "  • Turn ON Python / $(basename "${FDA_TARGET}") — the python.org app, not Terminal"
 fi
 echo "  • If already checked, toggle OFF then ON"
-echo "  • Fully quit MessageManager (Quit in the app window), then reopen it"
+echo "  • Return to MessageManager → Retest → Sync cache (Python.app)"
+echo "  • Then fully Quit MessageManager and reopen (so launch cache copy can use FDA)"
 echo ""
 
 if [[ "${1:-}" == "--reset" ]]; then
@@ -72,7 +102,7 @@ if [[ "${1:-}" == "--reset" ]]; then
   echo ""
 fi
 
-echo "Done. Return to MessageManager and press Recheck."
+echo "Done."
 echo ""
 
 # Keep Terminal open when launched as a .command double-click.

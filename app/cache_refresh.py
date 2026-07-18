@@ -434,54 +434,93 @@ def _install_sync_helpers() -> tuple[Path, Path]:
     return dest_py, dest_cmd
 
 
+def _framework_python_apps() -> list[Path]:
+    """python.org Framework Python.app bundles, newest first."""
+    found: list[Path] = []
+    for version in ("3.13", "3.12", "3.11", "3.10", "3.9"):
+        candidate = Path(
+            f"/Library/Frameworks/Python.framework/Versions/{version}/Resources/Python.app"
+        )
+        if candidate.is_dir():
+            found.append(candidate)
+    return found
+
+
+def _python_app_executable(app: Path) -> Optional[Path]:
+    """Return the Mach-O inside Python.app (TCC identity matches the .app)."""
+    for name in ("Python", "python3", "Python3"):
+        candidate = app / "Contents" / "MacOS" / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _framework_python_launcher() -> tuple[Optional[Path], Optional[Path]]:
     """
     Return (python_executable, python_app) for an out-of-process sync that can
     use Python.app Full Disk Access (more stable than MessageManager.app on Tahoe).
+
+    Prefer the Python.app bundle binary only — never fall back to a bare
+    .../bin/python3 for FDA-sensitive work (that identity often is not what the
+    user enabled in Full Disk Access).
     """
     from app.runtime_info import python_fda_target
 
     target = python_fda_target()
     app: Optional[Path] = Path(target) if target else None
     if app is not None and not str(app).endswith(".app"):
-        # Target may be a bare binary; try to find neighboring Python.app.
         app = None
-        for version in ("3.13", "3.12", "3.11", "3.10", "3.9"):
-            candidate = Path(
-                f"/Library/Frameworks/Python.framework/Versions/{version}/Resources/Python.app"
-            )
-            if candidate.is_dir():
-                app = candidate
-                break
+    if app is None or not app.is_dir():
+        apps = _framework_python_apps()
+        app = apps[0] if apps else None
 
-    exe: Optional[Path] = None
-    if app is not None and app.is_dir():
-        for name in ("Python", "python3", "Python3"):
-            candidate = app / "Contents" / "MacOS" / name
-            if candidate.is_file():
-                exe = candidate
-                break
-        if exe is None:
-            # Framework bin next to Resources/Python.app
-            versions = app.parent.parent  # .../Versions/3.13
-            for name in ("python3", "python3.13", "python3.12", "python3.11"):
-                candidate = versions / "bin" / name
-                if candidate.is_file():
-                    exe = candidate
-                    break
-
+    exe = _python_app_executable(app) if app is not None else None
     if exe is None:
-        for version in ("3.13", "3.12", "3.11", "3.10", "3.9"):
-            candidate = Path(
-                f"/Library/Frameworks/Python.framework/Versions/{version}/bin/python3"
-            )
-            if candidate.is_file():
-                exe = candidate
-                app = Path(
-                    f"/Library/Frameworks/Python.framework/Versions/{version}/Resources/Python.app"
-                )
+        for candidate_app in _framework_python_apps():
+            exe = _python_app_executable(candidate_app)
+            if exe is not None:
+                app = candidate_app
                 break
     return exe, app if app and app.is_dir() else None
+
+
+def _popen_via_python_app(
+    args: list[str],
+    *,
+    env: Optional[dict[str, str]] = None,
+) -> subprocess.Popen:
+    """
+    Launch a script under Python.app via LaunchServices when possible.
+
+    `open -a Python.app` keeps the TCC identity as Python.app (the entry users
+    toggle in Full Disk Access). Falls back to the bundle Mach-O directly.
+    """
+    exe, app = _framework_python_launcher()
+    if exe is None:
+        raise FileNotFoundError(
+            "python.org Python.app not found. Install Python from python.org, "
+            "grant Full Disk Access to Python.app, then retry."
+        )
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
+
+    if app is not None and app.is_dir():
+        # -n: new instance; -W: wait until it exits (so callers can poll).
+        return subprocess.Popen(  # noqa: S603
+            ["open", "-n", "-W", "-a", str(app), "--args", *args],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env=run_env,
+        )
+    return subprocess.Popen(  # noqa: S603
+        [str(exe), *args],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        env=run_env,
+    )
 
 
 def _poll_progress_file(
@@ -569,7 +608,7 @@ def refresh_caches_via_python_app(progress: Optional[ProgressFn] = None) -> dict
     if exe is None:
         raise FileNotFoundError(
             "python.org Python.app not found. Install Python from python.org, "
-            "grant it Full Disk Access, or switch cache sync method to Terminal in Settings."
+            "grant Full Disk Access to Python.app, then retry."
         )
 
     _report(
@@ -577,17 +616,12 @@ def refresh_caches_via_python_app(progress: Optional[ProgressFn] = None) -> dict
         f"Starting Python cache sync via {app.name if app else exe.name}…",
         1,
     )
-    env = os.environ.copy()
-    env["MESSAGEMANAGER_SYNC_METHOD"] = "python"
-    env.pop("KEEP_TERMINAL_OPEN", None)
-
-    # Run Framework python directly (not the in-app venv). When Python.app has FDA,
-    # this interpreter is the stable target users already added on Tahoe.
-    proc = subprocess.Popen(  # noqa: S603
-        [str(exe), str(script), "--method", "python"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
+    env = {
+        "MESSAGEMANAGER_SYNC_METHOD": "python",
+    }
+    # Launch through Python.app so Full Disk Access matches the FDA list entry.
+    proc = _popen_via_python_app(
+        [str(script), "--method", "python"],
         env=env,
     )
     result = _poll_progress_file(progress, proc=proc, timeout_s=60 * 60)
@@ -655,12 +689,13 @@ def open_terminal_sync() -> dict[str, Any]:
 
 
 def open_python_sync() -> dict[str, Any]:
-    """Launch Framework Python to run the cache sync (non-blocking)."""
+    """Launch Framework Python.app to run the cache sync (non-blocking)."""
     script, _command = _install_sync_helpers()
     exe, app = _framework_python_launcher()
     if exe is None:
         raise FileNotFoundError(
-            "python.org Python.app not found. Install Python from python.org or use Terminal sync."
+            "python.org Python.app not found. Install Python from python.org, "
+            "grant Full Disk Access to Python.app, then retry."
         )
     status_path = progress_file_path()
     try:
@@ -668,23 +703,38 @@ def open_python_sync() -> dict[str, Any]:
             status_path.unlink()
     except OSError:
         pass
-    env = os.environ.copy()
-    env["MESSAGEMANAGER_SYNC_METHOD"] = "python"
-    subprocess.Popen(  # noqa: S603
-        [str(exe), str(script), "--method", "python"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-        env=env,
-    )
+    # Non-blocking: omit -W by launching a short open without wait via helper
+    # that still uses LaunchServices identity.
+    if app is not None and app.is_dir():
+        subprocess.Popen(  # noqa: S603
+            [
+                "open",
+                "-n",
+                "-a",
+                str(app),
+                "--args",
+                str(script),
+                "--method",
+                "python",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env={**os.environ, "MESSAGEMANAGER_SYNC_METHOD": "python"},
+        )
+    else:
+        _popen_via_python_app(
+            [str(script), "--method", "python"],
+            env={"MESSAGEMANAGER_SYNC_METHOD": "python"},
+        )
     return {
         "ok": True,
         "script": str(script),
         "python_app": str(app) if app else None,
         "python_executable": str(exe),
         "detail": (
-            f"Started Python cache sync via {exe}. "
-            "Enable Full Disk Access for Python.app if it fails, then Recheck."
+            f"Started Python cache sync via {app or exe}. "
+            "Enable Full Disk Access for Python.app if it fails, then Retest and Sync again."
         ),
     }
 

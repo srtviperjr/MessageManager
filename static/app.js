@@ -123,8 +123,10 @@ const els = {
   cacheSyncAlert: document.getElementById("cache-sync-alert"),
   cacheSyncProgress: document.getElementById("cache-sync-progress"),
   fdaProbeList: document.getElementById("fda-probe-list"),
+  fdaGuidance: document.getElementById("fda-guidance"),
+  settingsFdaPrepareBtn: document.getElementById("settings-fda-prepare-btn"),
   settingsFdaProbeBtn: document.getElementById("settings-fda-probe-btn"),
-  settingsFdaProbeQuickBtn: document.getElementById("settings-fda-probe-quick-btn"),
+  settingsFdaProbeTerminalBtn: document.getElementById("settings-fda-probe-terminal-btn"),
   recheckPermissionsBtn: document.getElementById("recheck-permissions-btn"),
   settingsAccessChecklist: document.getElementById("settings-access-checklist"),
   settingsAccessDetail: document.getElementById("settings-access-detail"),
@@ -149,7 +151,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.24";
+state.appVersion = "1.0.25";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
@@ -213,15 +215,16 @@ function renderFdaProbeList(targets) {
   const items = Array.isArray(targets) ? targets : [];
   if (!items.length) {
     els.fdaProbeList.innerHTML =
-      '<li class="pending"><span class="fda-mark">—</span><span class="fda-label">Not tested yet</span><span class="fda-detail">Press “Test Full Disk Access”</span></li>';
+      '<li class="pending"><span class="fda-mark">—</span><span class="fda-label">Not tested yet</span><span class="fda-detail">Press Prepare FDA, enable the apps, then Retest</span></li>';
     return;
   }
   els.fdaProbeList.innerHTML = items
     .map((item) => {
       const ok = !!item.ok;
       const pending = !!item.pending;
-      const cls = pending ? "pending" : ok ? "ok" : "fail";
-      const mark = pending ? "…" : ok ? "OK" : "FAIL";
+      const info = !!item.informational && !ok;
+      const cls = pending ? "pending" : ok ? "ok" : info ? "info" : "fail";
+      const mark = pending ? "…" : ok ? "OK" : info ? "N/A" : "FAIL";
       return `<li class="${cls}">
         <span class="fda-mark">${mark}</span>
         <span class="fda-label">${escapeHtml(item.label || item.id || "")}</span>
@@ -233,16 +236,28 @@ function renderFdaProbeList(targets) {
     .join("");
 }
 
-async function runFdaProbe({ includeTerminal = true } = {}) {
+function renderFdaGuidance(summary) {
+  if (!els.fdaGuidance) return;
+  const text = summary?.guidance || "";
+  els.fdaGuidance.textContent = text;
+  if (summary?.clean_path_ready) {
+    els.fdaGuidance.classList.add("fda-guidance-ok");
+  } else {
+    els.fdaGuidance.classList.remove("fda-guidance-ok");
+  }
+}
+
+async function runFdaProbe({ includeTerminal = false } = {}) {
   if (els.settingsFdaProbeBtn) els.settingsFdaProbeBtn.disabled = true;
-  if (els.settingsFdaProbeQuickBtn) els.settingsFdaProbeQuickBtn.disabled = true;
+  if (els.settingsFdaProbeTerminalBtn) els.settingsFdaProbeTerminalBtn.disabled = true;
+  if (els.settingsFdaPrepareBtn) els.settingsFdaPrepareBtn.disabled = true;
   renderFdaProbeList([
     {
       id: "pending",
       label: "Testing…",
       detail: includeTerminal
         ? "Checking MessageManager, Python, and Terminal (Terminal may flash open)"
-        : "Checking MessageManager and Python",
+        : "Checking MessageManager.app and Python.app",
       pending: true,
     },
   ]);
@@ -252,12 +267,23 @@ async function runFdaProbe({ includeTerminal = true } = {}) {
     );
     state.fdaProbe = data;
     renderFdaProbeList(data.targets || []);
+    renderFdaGuidance(data.summary || {});
     const recommended = data.summary?.recommended;
     if (recommended && recommended !== selectedCacheSyncMethod()) {
+      const radio = document.querySelector(
+        `input[name="cache-sync-method"][value="${recommended}"]`
+      );
+      if (radio) {
+        radio.checked = true;
+        persistSettingsPatch({ cache_sync_method: recommended });
+      }
       setCacheAlert(
-        `Recommended sync method right now: ${recommended}. You can switch it above.`,
+        data.summary?.guidance ||
+          `Switched sync method to ${recommended} (works with your current FDA).`,
         "info"
       );
+    } else if (data.summary?.guidance) {
+      setCacheAlert(data.summary.guidance, data.summary.clean_path_ready ? "ok" : "info");
     }
     return data;
   } catch (err) {
@@ -266,7 +292,45 @@ async function runFdaProbe({ includeTerminal = true } = {}) {
     return null;
   } finally {
     if (els.settingsFdaProbeBtn) els.settingsFdaProbeBtn.disabled = false;
-    if (els.settingsFdaProbeQuickBtn) els.settingsFdaProbeQuickBtn.disabled = false;
+    if (els.settingsFdaProbeTerminalBtn) els.settingsFdaProbeTerminalBtn.disabled = false;
+    if (els.settingsFdaPrepareBtn) els.settingsFdaPrepareBtn.disabled = false;
+  }
+}
+
+async function prepareFda() {
+  if (els.settingsFdaPrepareBtn) els.settingsFdaPrepareBtn.disabled = true;
+  setCacheAlert(
+    "Registering MessageManager + Python.app, then opening Full Disk Access…",
+    "info"
+  );
+  try {
+    const data = await api("/api/permissions/prepare-fda", { method: "POST" });
+    const revealed = (data.revealed || []).join(" · ");
+    setCacheAlert(
+      [
+        data.detail || "Opened Full Disk Access",
+        revealed ? `Revealed: ${revealed}` : "",
+        "Turn ON MessageManager and Python.app, then press Retest.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      "info"
+    );
+    if (els.fdaGuidance && Array.isArray(data.steps) && data.steps.length) {
+      els.fdaGuidance.textContent = data.steps.join(" ");
+    }
+    // Show registration probe results if present
+    const registered = data.registered || {};
+    const targets = [registered.app, registered.python].filter(Boolean);
+    if (targets.length) {
+      renderFdaProbeList(targets);
+    }
+    return data;
+  } catch (err) {
+    setCacheAlert(err.message || "Could not prepare Full Disk Access", "error");
+    return null;
+  } finally {
+    if (els.settingsFdaPrepareBtn) els.settingsFdaPrepareBtn.disabled = false;
   }
 }
 
@@ -1294,17 +1358,8 @@ async function exportSupportBundle() {
 }
 
 async function runGrantScript() {
-  try {
-    clearStatus("Opening Full Disk Access helper…");
-    const data = await api("/api/permissions/run-grant-script", { method: "POST" });
-    const bits = [data.detail || "Opened Full Disk Access settings"];
-    if (data.exported) bits.push("Script also saved to Downloads");
-    clearStatus(bits.join(" · "));
-    return data;
-  } catch (err) {
-    clearStatus(err.message || "Could not run grant script");
-    return null;
-  }
+  selectSettingsTab("cache");
+  return prepareFda();
 }
 
 function formatBytes(n) {
@@ -2073,11 +2128,12 @@ function bindEvents() {
     syncMessagesCache();
   });
   els.settingsSyncCacheBtn?.addEventListener("click", () => syncMessagesCache());
+  els.settingsFdaPrepareBtn?.addEventListener("click", () => prepareFda());
   els.settingsFdaProbeBtn?.addEventListener("click", () =>
-    runFdaProbe({ includeTerminal: true })
-  );
-  els.settingsFdaProbeQuickBtn?.addEventListener("click", () =>
     runFdaProbe({ includeTerminal: false })
+  );
+  els.settingsFdaProbeTerminalBtn?.addEventListener("click", () =>
+    runFdaProbe({ includeTerminal: true })
   );
   els.settingsOpenLogsBtn?.addEventListener("click", () => openLogsModal());
   document.querySelectorAll('input[name="cache-sync-method"]').forEach((input) => {
@@ -2176,7 +2232,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.24";
+    state.appVersion = health.version || state.appVersion || "1.0.25";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
