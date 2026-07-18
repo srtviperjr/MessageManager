@@ -12,6 +12,7 @@ const state = {
   messagesLimit: 10,
   messagesHasMore: false,
   flyoutChatId: null,
+  suppressFlyoutDismissUntil: 0,
   hasLoaded: false,
   loadCardCollapsed: false,
   availableThreads: null,
@@ -119,7 +120,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.12";
+state.appVersion = "1.0.13";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -450,7 +451,7 @@ function renderCategoryControls() {
         event.stopPropagation();
         const chatId = state.flyoutChatId || state.selectedId;
         const category = btn.dataset.flyoutCategory;
-        hideCategoryFlyout();
+        forceHideCategoryFlyout();
         if (!chatId || !category) return;
         if (state.selectedId !== chatId) selectThread(chatId);
         await setCategory(category);
@@ -543,20 +544,27 @@ function renderThreadList() {
         ? preview
         : `${count.toLocaleString()} messages`;
       const cat = t.category || "uncategorized";
+      // Category control is a sibling button (not nested inside the row button)
+      // so clicks don't get swallowed as "select conversation".
       return `
-        <button class="thread-item ${active}" data-id="${t.id}" role="listitem">
-          <div class="top">
-            <span class="name">${escapeHtml(t.display_name || "Untitled")}</span>
-            <span class="when">${escapeHtml(formatWhen(t.last_message_at))}</span>
-          </div>
-          <p class="preview">${escapeHtml(subtitle)}</p>
-          <span
+        <div class="thread-row ${active}" data-thread-row="${t.id}" role="listitem">
+          <button type="button" class="thread-item" data-id="${t.id}">
+            <div class="top">
+              <span class="name">${escapeHtml(t.display_name || "Untitled")}</span>
+              <span class="when">${escapeHtml(formatWhen(t.last_message_at))}</span>
+            </div>
+            <p class="preview">${escapeHtml(subtitle)}</p>
+          </button>
+          <button
+            type="button"
             class="badge ${cat} clickable"
             data-category-badge="${t.id}"
             data-category="${cat}"
-            title="Click to change category"
-          >${categoryLabel(cat)}</span>
-        </button>
+            title="Change category"
+            aria-haspopup="menu"
+            aria-label="Change category for ${escapeHtml(t.display_name || "conversation")}"
+          >${categoryLabel(cat)}</button>
+        </div>
       `;
     })
     .join("");
@@ -570,15 +578,36 @@ function renderThreadList() {
       event.stopPropagation();
       const chatId = Number(badge.dataset.categoryBadge);
       if (!Number.isFinite(chatId)) return;
-      // selectThread re-renders the list and destroys this badge node, so
-      // capture its screen position first, then re-find the new badge.
-      const clickRect = badge.getBoundingClientRect();
-      selectThread(chatId);
-      const nextBadge = els.threadList.querySelector(
-        `[data-category-badge="${chatId}"]`
-      );
-      openCategoryFlyout(nextBadge, chatId, clickRect);
+      openCategoryPickerForChat(chatId, badge);
     });
+  });
+}
+
+function suppressFlyoutDismiss(ms = 450) {
+  state.suppressFlyoutDismissUntil = Date.now() + ms;
+}
+
+function shouldSuppressFlyoutDismiss() {
+  return Date.now() < (state.suppressFlyoutDismissUntil || 0);
+}
+
+function openCategoryPickerForChat(chatId, anchorEl = null) {
+  if (!Number.isFinite(chatId)) return;
+  const clickRect = anchorEl?.getBoundingClientRect?.() || null;
+  suppressFlyoutDismiss(500);
+
+  const alreadySelected = state.selectedId === chatId;
+  if (!alreadySelected) {
+    selectThread(chatId);
+  }
+
+  // Re-render replaces the anchor; reopen against the new badge (or fallback rect).
+  requestAnimationFrame(() => {
+    suppressFlyoutDismiss(400);
+    const nextBadge = els.threadList?.querySelector(
+      `[data-category-badge="${chatId}"]`
+    );
+    openCategoryFlyout(nextBadge || anchorEl, chatId, clickRect);
   });
 }
 
@@ -590,13 +619,19 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function hideCategoryFlyout() {
+function forceHideCategoryFlyout() {
+  state.suppressFlyoutDismissUntil = 0;
   if (!els.categoryFlyout) return;
   els.categoryFlyout.classList.add("hidden");
   state.flyoutChatId = null;
   if (els.threadCategoryLabel) {
     els.threadCategoryLabel.setAttribute("aria-expanded", "false");
   }
+}
+
+function hideCategoryFlyout() {
+  if (shouldSuppressFlyoutDismiss()) return;
+  forceHideCategoryFlyout();
 }
 
 function positionCategoryFlyout(rect) {
@@ -1479,22 +1514,42 @@ function bindEvents() {
     const open =
       !els.categoryFlyout?.classList.contains("hidden") &&
       state.flyoutChatId === state.selectedId;
-    if (open) hideCategoryFlyout();
-    else openCategoryFlyout(els.threadCategoryLabel, state.selectedId);
+    if (open) {
+      forceHideCategoryFlyout();
+      return;
+    }
+    suppressFlyoutDismiss(400);
+    openCategoryFlyout(els.threadCategoryLabel, state.selectedId);
   });
 
-  document.addEventListener("click", () => {
-    hideCategoryFlyout();
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (
+      target instanceof Node &&
+      (els.categoryFlyout?.contains(target) ||
+        els.messagesLoadFlyout?.contains(target) ||
+        (target instanceof Element &&
+          (target.closest("[data-category-badge]") ||
+            target.closest("#thread-category-label"))))
+    ) {
+      return;
+    }
+    if (!shouldSuppressFlyoutDismiss()) {
+      forceHideCategoryFlyout();
+    }
     hideMessagesLoadFlyout();
   });
   window.addEventListener("resize", () => {
-    hideCategoryFlyout();
+    forceHideCategoryFlyout();
     hideMessagesLoadFlyout();
   });
   els.threadList?.addEventListener(
     "scroll",
     () => {
-      hideCategoryFlyout();
+      // Selecting a conversation re-renders the list and can emit a scroll
+      // event; don't let that immediately dismiss the category picker.
+      if (shouldSuppressFlyoutDismiss()) return;
+      forceHideCategoryFlyout();
       hideMessagesLoadFlyout();
     },
     { passive: true }
@@ -1668,7 +1723,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.12";
+    state.appVersion = health.version || state.appVersion || "1.0.13";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
