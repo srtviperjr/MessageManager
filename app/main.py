@@ -304,15 +304,17 @@ def api_updates_download(body: UpdateDownloadRequest) -> dict:
     result = updates_store.download_installer(url)
     if not result.get("ok"):
         raise HTTPException(status_code=502, detail=result.get("detail") or "Download failed")
-    # Open the downloaded installer for the user.
+    # Install with a single admin password from Application Support (not Downloads)
+    # so macOS does not show repeated Files-and-Folders prompts.
     path = result.get("path")
     if path:
-        try:
-            import subprocess
-
-            subprocess.Popen(["open", path])  # noqa: S603
-        except Exception:  # noqa: BLE001
-            log.exception("Could not open downloaded installer")
+        installed = updates_store.schedule_privileged_install(path)
+        if not installed.get("ok"):
+            raise HTTPException(
+                status_code=502,
+                detail=installed.get("detail") or "Could not start installer",
+            )
+        result = {**result, **installed}
     return result
 
 
