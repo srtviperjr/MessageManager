@@ -668,6 +668,19 @@ input {
   white-space: nowrap;
 }
 
+.thread-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.thread-row .msg-count {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  line-height: 1.2;
+}
 
 .badge {
   display: inline-flex;
