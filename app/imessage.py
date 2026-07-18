@@ -309,7 +309,7 @@ def list_threads(
 
         participants_by_chat: dict[int, list[str]] = defaultdict(list)
         if chat_ids:
-            _report(progress, "Resolving contact names…", 65)
+            _report(progress, "Loading participants…", 65)
             placeholders = ",".join("?" * len(chat_ids))
             for handle_row in conn.execute(
                 f"""
@@ -324,40 +324,8 @@ def list_threads(
                 participants_by_chat[int(handle_row["chat_id"])].append(handle_row["handle"])
 
         all_handles = sorted({h for handles in participants_by_chat.values() for h in handles})
+        _report(progress, "Resolving contact names…", 80)
         handle_names = resolve_handles(all_handles)
-
-        # One latest preview per thread, fetched individually so progress updates
-        # and a huge window-function scan over the full message table is avoided.
-        preview_by_chat: dict[int, str] = {}
-        if chat_ids:
-            for idx, chat_id in enumerate(chat_ids):
-                label_handles = participants_by_chat.get(chat_id, [])
-                label = ", ".join(handle_names.get(h, h) for h in label_handles[:2]) or f"chat {chat_id}"
-                pct = 70 + int(25 * idx / max(total, 1))
-                _report(
-                    progress,
-                    f"Loading preview {idx + 1}/{total}: {label[:48]}",
-                    pct,
-                )
-                try:
-                    msg = conn.execute(
-                        """
-                        SELECT m.text, m.attributedBody
-                        FROM message m
-                        JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
-                        WHERE cmj.chat_id = ?
-                        ORDER BY m.date DESC
-                        LIMIT 1
-                        """,
-                        (chat_id,),
-                    ).fetchone()
-                except sqlite3.Error:
-                    continue
-                if not msg:
-                    continue
-                text = message_text(msg)
-                if text:
-                    preview_by_chat[chat_id] = text[:180]
 
         threads: list[dict[str, Any]] = []
         for row in rows:
@@ -375,7 +343,8 @@ def list_threads(
                     "is_group": bool(row["style"] and row["style"] != 45),
                     "message_count": row["message_count"] or 0,
                     "last_message_at": last_dt.isoformat() if last_dt else None,
-                    "preview": preview_by_chat.get(int(row["id"]), ""),
+                    # Previews are intentionally omitted — list shows last activity time only.
+                    "preview": "",
                 }
             )
 

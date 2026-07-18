@@ -120,7 +120,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.14";
+state.appVersion = "1.0.15";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -538,11 +538,6 @@ function renderThreadList() {
   els.threadList.innerHTML = threads
     .map((t) => {
       const active = t.id === selectedId ? "active" : "";
-      const preview = (t.preview || "").trim();
-      const count = t.message_count || 0;
-      const subtitle = preview
-        ? preview
-        : `${count.toLocaleString()} messages`;
       const cat = t.category || "uncategorized";
       // Category control is a sibling button (not nested inside the row button)
       // so clicks don't get swallowed as "select conversation".
@@ -553,7 +548,6 @@ function renderThreadList() {
               <span class="name">${escapeHtml(t.display_name || "Untitled")}</span>
               <span class="when">${escapeHtml(formatWhen(t.last_message_at))}</span>
             </div>
-            <p class="preview">${escapeHtml(subtitle)}</p>
           </button>
           <button
             type="button"
@@ -761,7 +755,8 @@ async function loadThreads() {
           setStatus(message, percent, { busy: true });
           if (
             message &&
-            (message.startsWith("Loading preview") ||
+            (message.startsWith("Loading participants") ||
+              message.startsWith("Resolving contact") ||
               message.startsWith("Loading Contacts") ||
               message.startsWith("Contacts"))
           ) {
@@ -1145,6 +1140,31 @@ async function promptInstallUpdate(info, { force = false } = {}) {
   return true;
 }
 
+async function closeAppForUpgrade() {
+  // Stop the local server (AppKit control window exits when health checks fail),
+  // then close this browser tab so the post-install relaunch starts clean.
+  try {
+    await api("/api/shutdown", { method: "POST" });
+  } catch {
+    // Connection may drop as the server stops.
+  }
+  try {
+    window.close();
+  } catch {
+    // Browsers often block closing tabs not opened by script.
+  }
+  // Fallback if the tab stays open.
+  try {
+    document.body.innerHTML =
+      "<main style='font:500 16px/1.4 system-ui;padding:3rem;text-align:center;color:#1c2430'>" +
+      "Installer is running. This tab can be closed — MessageManager will reopen after install." +
+      "</main>";
+    document.title = "MessageManager — updating";
+  } catch {
+    // ignore
+  }
+}
+
 async function downloadAndInstallUpdate() {
   const url = state.updateInfo?.installer?.url;
   if (!url) return;
@@ -1158,18 +1178,22 @@ async function downloadAndInstallUpdate() {
   }
   setStatus("Downloading update…", null, { busy: true });
   try {
-    const result = await api("/api/updates/download", {
+    await api("/api/updates/download", {
       method: "POST",
       body: JSON.stringify({ url }),
     });
-    clearStatus("Installer opened — finish the package install; MessageManager will relaunch on its own");
+    setStatus("Installer opened — closing MessageManager for a clean upgrade…", null, {
+      busy: true,
+    });
     if (els.updateStatus) {
       els.updateStatus.textContent =
-        "Installer opened. Complete the package steps; the app relaunches quietly after install (no extra prompts).";
+        "Installer opened. Closing this session so the new version can relaunch cleanly.";
     }
+    // Give the OS a moment to present the installer before we tear down.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await closeAppForUpgrade();
   } catch (err) {
     clearStatus(err.message || "Update download failed");
-  } finally {
     if (els.installUpdateBtn) {
       els.installUpdateBtn.disabled = false;
       els.installUpdateBtn.textContent = "Download & install update";
@@ -1725,7 +1749,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.14";
+    state.appVersion = health.version || state.appVersion || "1.0.15";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
