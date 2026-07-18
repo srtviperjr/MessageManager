@@ -2,7 +2,7 @@
 
 Local macOS app for browsing, categorizing, and summarizing your iMessage conversations — entirely on your machine.
 
-**Current release:** [v1.0.32](https://github.com/srtviperjr/MessageManager/releases/tag/v1.0.32)
+**Current release:** [v1.0.33](https://github.com/srtviperjr/MessageManager/releases/tag/v1.0.33)
 
 ![App icon](docs/screenshots/app-icon.png)
 
