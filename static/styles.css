@@ -592,35 +592,42 @@ input {
   display: inline-flex;
   align-items: center;
   margin: 0;
-  padding: 0.2rem 0.55rem;
-  border: 0;
+  padding: 0.28rem 0.65rem;
+  border: 1px solid transparent;
   border-radius: 999px;
   font: inherit;
   font-size: 0.7rem;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: 1.2;
+  opacity: 1;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .badge.business {
-  background: var(--business-soft);
-  color: var(--business);
+  background: #c8e8df;
+  border-color: #9dcec0;
+  color: #0b4a3d;
 }
 
 .badge.personal {
-  background: var(--personal-soft);
-  color: var(--personal);
+  background: #f3d4c0;
+  border-color: #e0b190;
+  color: #6e2e0c;
 }
 
 .badge.uncategorized {
-  background: rgba(28, 36, 48, 0.08);
-  color: var(--ink-soft);
+  background: #e7e2d8;
+  border-color: #cfc8bb;
+  color: #3d4654;
 }
 
 .badge.ignore {
-  background: rgba(90, 101, 115, 0.16);
-  color: #4a5562;
+  background: #d5d9df;
+  border-color: #b7bec8;
+  color: #3a424d;
 }
 
 .main {
@@ -705,13 +712,11 @@ button.category-label.clickable:hover {
 
 .badge.clickable {
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 0.15em;
+  text-decoration: none;
 }
 
 .badge.clickable:hover {
-  filter: brightness(0.96);
+  filter: brightness(0.97);
 }
 
 .category-flyout {
@@ -720,12 +725,15 @@ button.category-label.clickable:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  padding: 0.35rem;
+  padding: 0.4rem;
   border-radius: 16px;
-  border: 1px solid var(--line);
-  background: var(--panel);
+  border: 1px solid rgba(28, 36, 48, 0.16);
+  background: #fffdf8;
   box-shadow: 0 10px 28px rgba(28, 36, 48, 0.16);
   max-width: min(92vw, 280px);
+  opacity: 1;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .category-flyout.hidden {
@@ -733,10 +741,10 @@ button.category-label.clickable:hover {
 }
 
 .category-flyout button {
-  border: 0;
+  border: 1px solid #cfc8bb;
   border-radius: 999px;
   padding: 0.4rem 0.75rem;
-  background: rgba(28, 36, 48, 0.06);
+  background: #ebe4d6;
   color: var(--ink);
   font-size: 0.75rem;
   font-weight: 600;
@@ -744,7 +752,8 @@ button.category-label.clickable:hover {
 }
 
 .category-flyout button:hover {
-  background: var(--accent-soft);
+  background: #d9e5f5;
+  border-color: #a9c0df;
   color: var(--accent);
 }
 

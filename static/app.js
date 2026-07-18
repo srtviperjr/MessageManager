@@ -120,7 +120,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.13";
+state.appVersion = "1.0.14";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -453,8 +453,8 @@ function renderCategoryControls() {
         const category = btn.dataset.flyoutCategory;
         forceHideCategoryFlyout();
         if (!chatId || !category) return;
-        if (state.selectedId !== chatId) selectThread(chatId);
-        await setCategory(category);
+        // Categorize in place — do not select/load the conversation.
+        await setCategory(category, chatId);
       });
     });
   }
@@ -593,22 +593,13 @@ function shouldSuppressFlyoutDismiss() {
 
 function openCategoryPickerForChat(chatId, anchorEl = null) {
   if (!Number.isFinite(chatId)) return;
-  const clickRect = anchorEl?.getBoundingClientRect?.() || null;
-  suppressFlyoutDismiss(500);
-
-  const alreadySelected = state.selectedId === chatId;
-  if (!alreadySelected) {
-    selectThread(chatId);
-  }
-
-  // Re-render replaces the anchor; reopen against the new badge (or fallback rect).
-  requestAnimationFrame(() => {
-    suppressFlyoutDismiss(400);
-    const nextBadge = els.threadList?.querySelector(
-      `[data-category-badge="${chatId}"]`
-    );
-    openCategoryFlyout(nextBadge || anchorEl, chatId, clickRect);
-  });
+  // Open the picker only — do not select the conversation or load messages.
+  suppressFlyoutDismiss(400);
+  openCategoryFlyout(
+    anchorEl,
+    chatId,
+    anchorEl?.getBoundingClientRect?.() || null
+  );
 }
 
 function escapeHtml(value) {
@@ -973,24 +964,35 @@ function selectThread(id) {
   clearStatus(`Selected ${thread.display_name || "conversation"} · categorize or summarize`);
 }
 
-async function setCategory(category) {
-  if (!state.selectedId || !state.selected) return;
+async function setCategory(category, chatId = null) {
+  const id = chatId ?? state.selectedId;
+  if (!id) return;
+  const thread =
+    state.allThreads.find((t) => t.id === id) ||
+    state.threads.find((t) => t.id === id) ||
+    (state.selectedId === id ? state.selected : null);
   setStatus("Saving category…", null, { busy: true });
   try {
-    const updated = await api(`/api/threads/${state.selectedId}/category`, {
+    const updated = await api(`/api/threads/${id}/category`, {
       method: "PUT",
       body: JSON.stringify({
         category,
-        chat_guid: state.selected.guid,
+        chat_guid: thread?.guid || null,
       }),
     });
-    state.selected.category = updated.category;
-    const listed = state.allThreads.find((t) => t.id === state.selectedId);
+    const listed = state.allThreads.find((t) => t.id === id);
     if (listed) listed.category = updated.category;
+    const visible = state.threads.find((t) => t.id === id);
+    if (visible) visible.category = updated.category;
+    if (state.selectedId === id && state.selected) {
+      state.selected.category = updated.category;
+      syncCategoryButtons(updated.category);
+    }
 
-    syncCategoryButtons(updated.category);
     applyLocalFilters();
-    clearStatus(`Marked as ${categoryLabel(updated.category)}`);
+    clearStatus(
+      `${thread?.display_name || "Conversation"} → ${categoryLabel(updated.category)}`
+    );
   } catch (err) {
     clearStatus(err.message || "Failed to save category");
   }
@@ -1723,7 +1725,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.13";
+    state.appVersion = health.version || state.appVersion || "1.0.14";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
