@@ -71,15 +71,40 @@ chmod +x scripts/create-macos-app.sh scripts/create-macos-installer.sh scripts/m
 Creates:
 
 - `dist/MessageManager.app`
-- `dist/MessageManager-1.0.1.pkg` (and `dist/MessageManager.pkg`)
+- `dist/MessageManager.pkg` (filename is unversioned; version lives inside the package metadata)
 
 ### 2. Install on a Mac
 
-1. Double-click the `.pkg` (right-click → **Open** if Gatekeeper blocks it)
+1. Double-click `MessageManager.pkg`
 2. Complete the installer (app is always installed to **/Applications/MessageManager.app**)
 3. If Python 3.9+ is missing, the installer downloads and installs Python 3.12 from python.org, then installs app dependencies
 4. When prompted, grant **Full Disk Access** to **MessageManager**
 5. Launch MessageManager from Applications
+
+### Gatekeeper (“untrusted developer”) prompts
+
+macOS blocks unsigned downloads by default. **There is no supported way to skip this for public GitHub downloads without Apple notarization.**
+
+| Distribution | What users see |
+|---|---|
+| Unsigned `.pkg` from GitHub (current default) | First open needs right-click → **Open** (or System Settings → Privacy & Security → Open Anyway) |
+| Signed + notarized `.pkg` | Normal double-click install |
+
+To ship a notarized installer you need an [Apple Developer Program](https://developer.apple.com/programs/) membership (~$99/year), then:
+
+```bash
+# One-time: create Developer ID Application + Developer ID Installer certs in Xcode/developer.apple.com
+# One-time: store notary credentials
+xcrun notarytool store-credentials notary-profile \
+  --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-password"
+
+export CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)"
+export NOTARY_PROFILE="notary-profile"
+./scripts/create-macos-installer.sh
+```
+
+**Full Disk Access** is separate from Gatekeeper — macOS always requires that permission for reading Messages, even with a notarized app.
 
 ### 3. Updates
 
@@ -88,7 +113,7 @@ In **Settings → Updates**, check GitHub for a newer release. If one exists, **
 To publish a release:
 
 ```bash
-gh release create v1.0.1 dist/MessageManager-1.0.1.pkg --title "MessageManager 1.0.1" --notes "Release 1.0.1"
+gh release create v1.0.2 dist/MessageManager.pkg --title "MessageManager 1.0.2" --notes "Release 1.0.2"
 ```
 
 ### Dev / direct `.app` copy
