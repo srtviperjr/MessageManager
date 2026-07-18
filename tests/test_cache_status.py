@@ -56,7 +56,9 @@ class CacheStatusTests(unittest.TestCase):
             self.assertGreaterEqual(status["last_sync_age_seconds"], 100)
             self.assertFalse(status["refresh_policy"]["scheduled"])
             self.assertTrue(status["refresh_policy"]["on_manual_sync"])
-            self.assertIn("Not on a timer", status["refresh_policy"]["summary"])
+            self.assertTrue(status["refresh_policy"]["on_app_launch"])
+            self.assertIn("open the app", status["refresh_policy"]["summary"])
+            self.assertIn("Sync cache", status["refresh_policy"]["summary"])
 
 
 if __name__ == "__main__":
