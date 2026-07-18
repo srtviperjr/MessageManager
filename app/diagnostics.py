@@ -95,11 +95,34 @@ def _bundle_path() -> Optional[str]:
 def _short_path(path: Optional[str]) -> str:
     if not path:
         return ""
-    name = Path(path).name
-    if name.endswith(".app"):
-        return name
-    parent = Path(path).parent.name
-    return f"{parent}/{name}" if parent else name
+    p = Path(path)
+    if p.name.endswith(".app"):
+        return p.name
+    parts = p.parts
+    if "Python.framework" in parts:
+        # Avoid showing misleading "bin/python3.13" (not system /bin).
+        ver = "Python"
+        try:
+            idx = parts.index("Versions")
+            if idx + 1 < len(parts):
+                ver = f"Python {parts[idx + 1]}"
+        except ValueError:
+            pass
+        return f"{ver} (Framework)"
+    if len(parts) >= 2:
+        return f"{parts[-2]}/{parts[-1]}"
+    return p.name
+
+
+def _python_runtime_label(runtime: dict[str, Any]) -> str:
+    python_exe = runtime.get("python_executable") or runtime.get("executable")
+    version = runtime.get("python_version")
+    base = _short_path(python_exe) if python_exe else "Unknown"
+    if version and "Framework" in base:
+        return base  # already includes version-ish
+    if version and python_exe:
+        return f"{base} · {version}"
+    return base or "Unknown"
 
 
 def _checklist(messages: dict[str, Any], runtime: dict[str, Any]) -> list[dict[str, Any]]:
@@ -146,7 +169,7 @@ def _checklist(messages: dict[str, Any], runtime: dict[str, Any]) -> list[dict[s
             "id": "python_runtime",
             "label": "Python runtime",
             "ok": bool(python_exe),
-            "detail": _short_path(python_exe) or "Unknown",
+            "detail": _python_runtime_label(runtime),
         },
         {
             "id": "fda_targets",
@@ -277,8 +300,9 @@ def _human_summary(
             f"Messages error: {messages.get('error') or '(none)'}",
             f"Contacts available: {contacts.get('available')} (keys={contacts.get('contact_keys')})",
             f"Contacts error: {contacts.get('error') or '(none)'}",
-            f"Python: {runtime.get('executable')}",
+            f"Python: {runtime.get('python_executable') or runtime.get('executable')}",
             f"FDA target: {runtime.get('fda_target')}",
+            f"FDA target name: {runtime.get('fda_target_name')}",
             "",
             "Next steps:",
         ]

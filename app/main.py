@@ -39,6 +39,7 @@ from app.diagnostics import (
     export_support_bundle,
     format_support_bundle,
 )
+from app.cache_refresh import cache_status, refresh_caches
 from app.permissions_helper import grant_script_paths, run_grant_script
 from app.logs_api import list_log_files, read_log_file
 from app.migrations import run_migrations
@@ -377,6 +378,55 @@ def api_run_grant_script() -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/cache/status")
+def api_cache_status() -> dict:
+    return cache_status()
+
+
+@app.get("/api/cache/refresh")
+def api_cache_refresh_stream() -> StreamingResponse:
+    """Re-copy Messages (+ Contacts) into the local cache with progress events."""
+
+    def generate():
+        events: queue.Queue = queue.Queue()
+
+        def progress(message: str, percent: int) -> None:
+            events.put({"type": "progress", "message": message, "percent": percent})
+
+        def worker() -> None:
+            try:
+                result = refresh_caches(progress=progress)
+                # Invalidate contacts name cache so the new AddressBook copy is used.
+                try:
+                    from app.contacts import refresh_contacts
+
+                    refresh_contacts(force=True)
+                except Exception:  # noqa: BLE001
+                    log.exception("Contacts reload after cache refresh failed")
+                events.put({"type": "result", **result})
+            except Exception as exc:  # noqa: BLE001
+                events.put({"type": "error", "detail": str(exc)})
+            finally:
+                events.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+        yield _sse({"type": "progress", "message": "Starting cache refresh…", "percent": 1})
+        while True:
+            item = events.get()
+            if item is None:
+                break
+            yield _sse(item)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/shutdown")

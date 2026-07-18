@@ -1,0 +1,32 @@
+---
+description: Always commit, push, and publish a GitHub Release when shipping a new version
+alwaysApply: true
+---
+
+# Publish every new version to GitHub
+
+Whenever you bump `APP_VERSION` / `VERSION` (or otherwise prepare a new MessageManager release), finish the turn by shipping it — do not leave the release only local.
+
+Required steps for each new version `X.Y.Z`:
+
+1. Rebuild the installer: `./scripts/create-macos-installer.sh` → `dist/MessageManager.pkg`
+2. Commit all product changes (including the version bump)
+3. Push to `origin` (`git push origin HEAD`)
+4. Create the GitHub release with the pkg attached:
+
+```bash
+export PATH="$PWD/.tools/gh_2.67.0_macOS_amd64/bin:$PATH"
+gh release create "vX.Y.Z" "dist/MessageManager.pkg" \
+  --repo srtviperjr/MessageManager \
+  --title "MessageManager X.Y.Z" \
+  --notes "$(cat <<'EOF'
+## What's new
+- …
+
+## Install
+Download MessageManager.pkg, install, grant Full Disk Access to MessageManager, quit, and reopen.
+EOF
+)"
+```
+
+Return the release URL when done. Skip only if the user explicitly says not to publish.

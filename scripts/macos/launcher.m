@@ -3,13 +3,19 @@
  *
  * Stays an NSApplication for the Dock (stops the bounce), copies Messages +
  * Contacts under Full Disk Access, then runs launch.sh as a child task.
+ *
+ * Also supports: MessageManager --refresh-cache
+ * (headless re-copy with progress JSON for the web UI).
  */
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
 #include <copyfile.h>
 #include <dirent.h>
+#include <errno.h>
 #include <limits.h>
 #include <mach-o/dyld.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -30,12 +36,95 @@ static int ensure_dir(const char *path) {
   return mkdir(tmp, 0755);
 }
 
+typedef struct {
+  const char *label;
+  off_t total;
+  int percent_start;
+  int percent_end;
+  char status_path[PATH_MAX];
+} CopyProgressCtx;
+
+static void write_progress_json(const char *path, const char *message, int percent,
+                                int done, const char *error) {
+  FILE *f = fopen(path, "w");
+  if (!f) return;
+  fputc('{', f);
+  fprintf(f, "\"percent\":%d,", percent);
+  fprintf(f, "\"done\":%s,", done ? "true" : "false");
+  fprintf(f, "\"message\":\"");
+  if (message) {
+    for (const char *p = message; *p; p++) {
+      if (*p == '"' || *p == '\\') fputc('\\', f);
+      if (*p == '\n' || *p == '\r') continue;
+      fputc(*p, f);
+    }
+  }
+  fputc('"', f);
+  if (error && error[0]) {
+    fprintf(f, ",\"error\":\"");
+    for (const char *p = error; *p; p++) {
+      if (*p == '"' || *p == '\\') fputc('\\', f);
+      if (*p == '\n' || *p == '\r') continue;
+      fputc(*p, f);
+    }
+    fputc('"', f);
+  }
+  if (done && !(error && error[0])) {
+    fprintf(f, ",\"ok\":true,\"method\":\"native\"");
+  }
+  fputc('}', f);
+  fputc('\n', f);
+  fclose(f);
+}
+
+static int copy_progress_cb(int what, int stage, copyfile_state_t state,
+                            const char *src, const char *dst, void *ctx) {
+  (void)what;
+  (void)stage;
+  (void)src;
+  (void)dst;
+  CopyProgressCtx *c = (CopyProgressCtx *)ctx;
+  if (!c || !state) return COPYFILE_CONTINUE;
+  off_t copied = 0;
+  copyfile_state_get(state, COPYFILE_STATE_COPIED, &copied);
+  int pct = c->percent_start;
+  if (c->total > 0) {
+    double frac = (double)copied / (double)c->total;
+    if (frac > 1.0) frac = 1.0;
+    pct = c->percent_start +
+          (int)((c->percent_end - c->percent_start) * frac);
+  }
+  char msg[256];
+  double mb = copied / (1024.0 * 1024.0);
+  double total_mb = c->total / (1024.0 * 1024.0);
+  snprintf(msg, sizeof(msg), "Copying %s: %.1f / %.1f MB", c->label, mb, total_mb);
+  write_progress_json(c->status_path, msg, pct, 0, NULL);
+  return COPYFILE_CONTINUE;
+}
+
 static void copy_if_exists(const char *src, const char *dst) {
   struct stat st;
   if (stat(src, &st) != 0) return;
   if (copyfile(src, dst, NULL, COPYFILE_ALL) != 0) {
     fprintf(stderr, "MessageManager: copy failed %s -> %s\n", src, dst);
   }
+}
+
+static int copy_if_exists_progress(const char *src, const char *dst,
+                                   CopyProgressCtx *ctx) {
+  struct stat st;
+  if (stat(src, &st) != 0) return 0;
+  ctx->total = st.st_size;
+  copyfile_state_t state = copyfile_state_alloc();
+  if (!state) {
+    if (copyfile(src, dst, NULL, COPYFILE_ALL) != 0) return -1;
+    return 0;
+  }
+  copyfile_state_set(state, COPYFILE_STATE_STATUS_CB, &copy_progress_cb);
+  copyfile_state_set(state, COPYFILE_STATE_STATUS_CTX, ctx);
+  int rc = copyfile(src, dst, state, COPYFILE_ALL);
+  copyfile_state_free(state);
+  return rc == 0 ? 0 : -1;
 }
 
 static void copy_db_trio(const char *src_db, const char *dst_db) {
@@ -55,6 +144,43 @@ static void refresh_messages_cache(const char *home, const char *cache_dir) {
   join2(src, sizeof(src), home, "Library/Messages/chat.db");
   join2(dst, sizeof(dst), cache_dir, "chat.db");
   copy_db_trio(src, dst);
+}
+
+static int refresh_messages_cache_progress(const char *home, const char *cache_dir,
+                                           const char *status_path) {
+  char src[PATH_MAX], dst[PATH_MAX];
+  ensure_dir(cache_dir);
+  join2(src, sizeof(src), home, "Library/Messages/chat.db");
+  join2(dst, sizeof(dst), cache_dir, "chat.db");
+  struct stat st;
+  if (stat(src, &st) != 0) {
+    write_progress_json(status_path, "Messages database not found", 0, 1,
+                        "Open the Messages app once, then retry.");
+    return 1;
+  }
+  CopyProgressCtx ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  strncpy(ctx.status_path, status_path, sizeof(ctx.status_path) - 1);
+  ctx.label = "Messages chat.db";
+  ctx.percent_start = 5;
+  ctx.percent_end = 75;
+  write_progress_json(status_path, "Copying Messages chat.db…", 5, 0, NULL);
+  if (copy_if_exists_progress(src, dst, &ctx) != 0) {
+    char err[128];
+    snprintf(err, sizeof(err), "copy failed (%s)", strerror(errno));
+    write_progress_json(status_path, "Messages copy failed", 0, 1, err);
+    return 2;
+  }
+  // WAL / SHM are usually small; copy without detailed progress.
+  char src_wal[PATH_MAX], dst_wal[PATH_MAX], src_shm[PATH_MAX], dst_shm[PATH_MAX];
+  snprintf(src_wal, sizeof(src_wal), "%s-wal", src);
+  snprintf(dst_wal, sizeof(dst_wal), "%s-wal", dst);
+  snprintf(src_shm, sizeof(src_shm), "%s-shm", src);
+  snprintf(dst_shm, sizeof(dst_shm), "%s-shm", dst);
+  copy_if_exists(src_wal, dst_wal);
+  copy_if_exists(src_shm, dst_shm);
+  write_progress_json(status_path, "Messages cache ready", 75, 0, NULL);
+  return 0;
 }
 
 static void refresh_contacts_cache(const char *home, const char *cache_dir) {
@@ -308,7 +434,38 @@ static BOOL resolve_paths(char *script_out, size_t script_n,
 
 @end
 
+static int run_refresh_cache_cli(void) {
+  const char *home = getenv("HOME");
+  if (!home || !home[0]) home = "/Users/Shared";
+  char messages_cache[PATH_MAX], contacts_cache[PATH_MAX], status_path[PATH_MAX];
+  snprintf(messages_cache, sizeof(messages_cache),
+           "%s/Library/Application Support/MessageManager/messages-cache", home);
+  snprintf(contacts_cache, sizeof(contacts_cache),
+           "%s/Library/Application Support/MessageManager/contacts-cache", home);
+  snprintf(status_path, sizeof(status_path),
+           "%s/Library/Application Support/MessageManager/logs/cache-refresh.json",
+           home);
+  {
+    char logs[PATH_MAX];
+    snprintf(logs, sizeof(logs),
+             "%s/Library/Application Support/MessageManager/logs", home);
+    ensure_dir(logs);
+  }
+  write_progress_json(status_path, "Starting cache refresh…", 1, 0, NULL);
+  int rc = refresh_messages_cache_progress(home, messages_cache, status_path);
+  if (rc != 0) return rc;
+  write_progress_json(status_path, "Copying Contacts…", 80, 0, NULL);
+  refresh_contacts_cache(home, contacts_cache);
+  write_progress_json(status_path, "Cache refresh complete", 100, 1, NULL);
+  return 0;
+}
+
 int main(int argc, const char *argv[]) {
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--refresh-cache") == 0) {
+      return run_refresh_cache_cli();
+    }
+  }
   @autoreleasepool {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];

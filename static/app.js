@@ -116,9 +116,13 @@ const els = {
   openAccessLogsBtn: document.getElementById("open-access-logs-btn"),
   openPrivacyBtn: document.getElementById("open-privacy-btn"),
   runGrantScriptBtn: document.getElementById("run-grant-script-btn"),
+  refreshCacheBtn: document.getElementById("refresh-cache-btn"),
+  cacheRefreshStatus: document.getElementById("cache-refresh-status"),
   recheckPermissionsBtn: document.getElementById("recheck-permissions-btn"),
   settingsAccessChecklist: document.getElementById("settings-access-checklist"),
   settingsAccessDetail: document.getElementById("settings-access-detail"),
+  settingsCacheMeta: document.getElementById("settings-cache-meta"),
+  settingsRefreshCacheBtn: document.getElementById("settings-refresh-cache-btn"),
   settingsRunGrantBtn: document.getElementById("settings-run-grant-btn"),
   settingsRecheckAccessBtn: document.getElementById("settings-recheck-access-btn"),
   settingsCopyBundleBtn: document.getElementById("settings-copy-bundle-btn"),
@@ -134,9 +138,10 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.17";
+state.appVersion = "1.0.19";
 state.updateInfo = null;
 state.diagnostics = null;
+state.cacheRefreshing = false;
 
 function formatWhen(iso) {
   if (!iso) return "";
@@ -1169,6 +1174,97 @@ async function runGrantScript() {
   }
 }
 
+function formatBytes(n) {
+  if (n == null || Number.isNaN(Number(n))) return "";
+  const v = Number(n);
+  if (v >= 1024 ** 3) return `${(v / 1024 ** 3).toFixed(2)} GB`;
+  if (v >= 1024 ** 2) return `${(v / 1024 ** 2).toFixed(1)} MB`;
+  if (v >= 1024) return `${Math.round(v / 1024)} KB`;
+  return `${v} B`;
+}
+
+async function refreshCacheMeta() {
+  try {
+    const info = await api("/api/cache/status");
+    const parts = [];
+    if (info.messages_cache_exists) {
+      parts.push(`Cache: ${formatBytes(info.messages_cache_bytes)}`);
+    } else {
+      parts.push("Cache: missing");
+    }
+    if (info.live_db_exists) {
+      parts.push(`Live Messages DB: ${formatBytes(info.live_db_bytes)}`);
+    }
+    if (els.settingsCacheMeta) {
+      els.settingsCacheMeta.textContent = parts.join(" · ");
+    }
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshMessagesCache() {
+  if (state.cacheRefreshing) {
+    clearStatus("Cache refresh already running");
+    return null;
+  }
+  state.cacheRefreshing = true;
+  const buttons = [els.refreshCacheBtn, els.settingsRefreshCacheBtn].filter(Boolean);
+  buttons.forEach((btn) => {
+    btn.disabled = true;
+  });
+  if (els.cacheRefreshStatus) {
+    els.cacheRefreshStatus.classList.remove("hidden");
+    els.cacheRefreshStatus.textContent = "Starting cache refresh…";
+  }
+  try {
+    const result = await readSse("/api/cache/refresh", {
+      onProgress: (message, percent) => {
+        setStatus(message, percent, { busy: true });
+        if (els.cacheRefreshStatus) {
+          els.cacheRefreshStatus.textContent =
+            percent != null ? `${message} (${percent}%)` : message;
+        }
+      },
+    });
+    const size = formatBytes(result.messages_bytes);
+    clearStatus(
+      size
+        ? `Cache refreshed (${size}). Press Recheck or Start loading.`
+        : "Cache refreshed. Press Recheck or Start loading."
+    );
+    if (els.cacheRefreshStatus) {
+      els.cacheRefreshStatus.textContent = size
+        ? `Cache ready · ${size}`
+        : "Cache ready";
+    }
+    await refreshCacheMeta();
+    await refreshDiagnostics({ quiet: true });
+    try {
+      const health = await api("/api/health");
+      renderPermissions(health.permissions, health.messages, health.contacts);
+      if (health.messages?.readable) {
+        els.accessBanner?.classList.add("hidden");
+      }
+    } catch {
+      // ignore
+    }
+    return result;
+  } catch (err) {
+    clearStatus(err.message || "Cache refresh failed");
+    if (els.cacheRefreshStatus) {
+      els.cacheRefreshStatus.textContent = err.message || "Cache refresh failed";
+    }
+    return null;
+  } finally {
+    state.cacheRefreshing = false;
+    buttons.forEach((btn) => {
+      btn.disabled = false;
+    });
+  }
+}
+
 function renderPermissions(permissions, messages, contacts) {
   // Only prompt when Messages are unreadable. Never nag once access already works.
   const show = messages?.readable === false || permissions?.needs_attention === true;
@@ -1327,6 +1423,7 @@ function openSettingsModal() {
   }
   checkForUpdates({ quiet: true });
   refreshDiagnostics({ quiet: true });
+  refreshCacheMeta();
   els.settingsModal.classList.remove("hidden");
 }
 
@@ -1802,6 +1899,8 @@ function bindEvents() {
     }
   });
   els.runGrantScriptBtn?.addEventListener("click", () => runGrantScript());
+  els.refreshCacheBtn?.addEventListener("click", () => refreshMessagesCache());
+  els.settingsRefreshCacheBtn?.addEventListener("click", () => refreshMessagesCache());
   els.recheckPermissionsBtn?.addEventListener("click", async () => {
     try {
       const [health] = await Promise.all([
@@ -1893,7 +1992,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.17";
+    state.appVersion = health.version || state.appVersion || "1.0.19";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

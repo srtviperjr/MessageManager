@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260717y" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260717z" />
   </head>
   <body>
     <div class="app">
@@ -18,7 +18,7 @@
         <header class="brand">
           <div class="brand-row">
             <div>
-              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.17</span></span></h1>
+              <h1>MessageManager <span class="brand-version">v<span id="app-version-label">1.0.19</span></span></h1>
             </div>
             <button
               type="button"
@@ -105,10 +105,12 @@
             <ul id="access-checklist" class="access-checklist" aria-label="Access checklist"></ul>
           </div>
           <div class="permissions-actions">
-            <button type="button" id="run-grant-script-btn" class="primary load-btn">Run grant script</button>
+            <button type="button" id="refresh-cache-btn" class="primary load-btn">Refresh cache</button>
+            <button type="button" id="run-grant-script-btn" class="settings-cancel">Grant script</button>
             <button type="button" id="open-privacy-btn" class="settings-cancel">Privacy Settings</button>
             <button type="button" id="recheck-permissions-btn" class="settings-cancel">Recheck</button>
           </div>
+          <p id="cache-refresh-status" class="permissions-text hidden" aria-live="polite"></p>
           <div class="permissions-actions">
             <button type="button" id="copy-support-bundle-btn" class="settings-cancel">Copy bundle</button>
             <button type="button" id="export-support-bundle-btn" class="settings-cancel">Export bundle</button>
@@ -251,15 +253,17 @@
           <section class="settings-section">
             <h3>Access &amp; troubleshooting</h3>
             <p class="settings-help">
-              Grant Full Disk Access to <strong>MessageManager</strong>, quit, and reopen.
-              Use <strong>Run grant script</strong> to open settings and reveal the right apps.
+              Grant Full Disk Access to <strong>MessageManager</strong>, then use
+              <strong>Refresh cache</strong> to re-copy Messages (large databases can take several minutes).
             </p>
+            <p id="settings-cache-meta" class="settings-help"></p>
             <div class="access-checklist-scroll settings-checklist-scroll">
               <ul id="settings-access-checklist" class="access-checklist"></ul>
             </div>
             <p id="settings-access-detail" class="settings-help"></p>
             <div class="permissions-actions">
-              <button type="button" id="settings-run-grant-btn" class="primary">Run grant script</button>
+              <button type="button" id="settings-refresh-cache-btn" class="primary">Refresh cache</button>
+              <button type="button" id="settings-run-grant-btn" class="settings-cancel">Run grant script</button>
               <button type="button" id="settings-recheck-access-btn" class="settings-cancel">Recheck access</button>
             </div>
             <div class="permissions-actions">
@@ -270,7 +274,7 @@
 
           <section class="settings-section">
             <h3>Updates</h3>
-            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.17</strong></p>
+            <p class="settings-help">Current version: <strong id="settings-current-version">1.0.19</strong></p>
             <p id="update-status" class="settings-help">Checking for updates…</p>
             <div class="permissions-actions">
               <button type="button" id="check-updates-btn" class="settings-cancel">Check for updates</button>
@@ -370,6 +374,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=20260717y"></script>
+    <script src="/static/app.js?v=20260717z"></script>
   </body>
 </html>
