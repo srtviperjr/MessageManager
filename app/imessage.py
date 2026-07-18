@@ -52,7 +52,37 @@ def datetime_to_apple_bounds(dt: datetime) -> tuple[int, int]:
     return int(seconds * 1_000_000_000), int(seconds)
 
 
+def _messages_cache_dir() -> Optional[Path]:
+    raw = (os.environ.get("THREAD_LEDGER_MESSAGES_CACHE") or "").strip()
+    if not raw:
+        # Packaged launcher default location.
+        candidate = (
+            Path.home()
+            / "Library"
+            / "Application Support"
+            / "MessageManager"
+            / "messages-cache"
+        )
+        if (candidate / "chat.db").is_file():
+            return candidate
+        return None
+    path = Path(raw).expanduser()
+    return path if path.is_dir() else None
+
+
 def _copy_chat_db() -> Path:
+    cache_dir = _messages_cache_dir()
+    if cache_dir is not None:
+        cached = cache_dir / "chat.db"
+        if cached.is_file():
+            # Native app launcher refreshes this cache while FDA applies to the app binary.
+            temp_dir = Path(tempfile.mkdtemp(prefix="imessage-categorizer-"))
+            for name in ("chat.db", "chat.db-wal", "chat.db-shm"):
+                src = cache_dir / name
+                if src.exists():
+                    shutil.copy2(src, temp_dir / name)
+            return temp_dir / "chat.db"
+
     if not CHAT_DB.exists():
         raise MessagesAccessError(
             f"Messages database not found at {CHAT_DB}. "
@@ -69,9 +99,9 @@ def _copy_chat_db() -> Path:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise MessagesAccessError(
             "Permission denied reading ~/Library/Messages/chat.db. "
-            "Grant Full Disk Access to BOTH MessageManager and Python "
+            "Grant Full Disk Access to MessageManager "
             "(System Settings → Privacy & Security → Full Disk Access), "
-            "then quit and reopen MessageManager."
+            "then quit and reopen MessageManager so it can refresh its Messages cache."
         ) from exc
     except OSError as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)

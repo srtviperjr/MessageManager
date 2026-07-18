@@ -204,12 +204,11 @@ def health() -> dict:
     messages_ok = bool(messages.get("readable"))
     if not messages_ok:
         guidance = (
-            "macOS grants Full Disk Access per program. Enable it for BOTH "
-            "MessageManager and Python (the interpreter that actually reads chat.db), "
-            "then quit and reopen MessageManager."
+            "Enable Full Disk Access for MessageManager, then quit and reopen the app. "
+            "The app refreshes a local Messages cache on launch using that permission."
         )
         if fda_target:
-            guidance += f" Add this Python target: {fda_target}"
+            guidance += f" If it still fails, also enable: {fda_target}"
     else:
         guidance = None
     return {

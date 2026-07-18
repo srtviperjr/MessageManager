@@ -3,10 +3,15 @@ set -euo pipefail
 
 APP_SUPPORT="${HOME}/Library/Application Support/MessageManager"
 LOG_DIR="${APP_SUPPORT}/logs"
-mkdir -p "${LOG_DIR}" "${APP_SUPPORT}/data"
+MESSAGES_CACHE="${APP_SUPPORT}/messages-cache"
+mkdir -p "${LOG_DIR}" "${APP_SUPPORT}/data" "${MESSAGES_CACHE}"
 LOG_FILE="${LOG_DIR}/launch.log"
 SERVER_LOG="${LOG_DIR}/server.log"
 export THREAD_LEDGER_DATA="${APP_SUPPORT}/data"
+# Native launcher sets this after copying chat.db under Full Disk Access.
+if [[ -z "${THREAD_LEDGER_MESSAGES_CACHE:-}" && -f "${MESSAGES_CACHE}/chat.db" ]]; then
+  export THREAD_LEDGER_MESSAGES_CACHE="${MESSAGES_CACHE}"
+fi
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG_FILE}" >/dev/null
@@ -214,6 +219,11 @@ stop_server() {
 can_read_messages_db() {
   local py="$1"
   [[ -x "${py}" ]] || return 1
+  # Prefer the cache created by the native app launcher (FDA applies there).
+  local cache="${THREAD_LEDGER_MESSAGES_CACHE:-${APP_SUPPORT}/messages-cache/chat.db}"
+  if [[ -f "${cache}" ]]; then
+    return 0
+  fi
   "${py}" - <<'PY' >/dev/null 2>&1
 from pathlib import Path
 import shutil, tempfile

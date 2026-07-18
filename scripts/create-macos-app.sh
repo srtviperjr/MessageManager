@@ -54,8 +54,11 @@ rsync -a \
   --exclude 'logs' \
   "${ROOT}/" "${APP_PAYLOAD}/"
 
-cp "${ROOT}/scripts/macos/launch.sh" "${MACOS}/${APP_NAME}"
+# Native Mach-O executable so Full Disk Access applies to MessageManager.app.
+# (A shell-script CFBundleExecutable cannot read ~/Library/Messages for Python.)
+clang -Os -o "${MACOS}/${APP_NAME}" "${ROOT}/scripts/macos/launcher.c"
 chmod +x "${MACOS}/${APP_NAME}"
+chmod +x "${APP_PAYLOAD}/scripts/macos/launch.sh"
 
 if [[ -f "${ROOT}/assets/AppIcon.icns" ]]; then
   cp "${ROOT}/assets/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
