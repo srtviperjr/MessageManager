@@ -150,7 +150,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.32";
+state.appVersion = "1.0.33";
 state.updateInfo = null;
 state.diagnostics = null;
 state.cacheRefreshing = false;
@@ -868,23 +868,23 @@ function renderThreadList() {
           <button type="button" class="thread-item" data-id="${t.id}">
             <div class="top">
               <span class="name">${escapeHtml(t.display_name || "Untitled")}</span>
-              <span class="when">${escapeHtml(formatWhen(t.last_message_at))}</span>
+              <span class="when-block">
+                <span class="when">${escapeHtml(formatWhen(t.last_message_at))}</span>
+                <span class="msg-count" title="${escapeHtml(msgCountLabel)}">${escapeHtml(
+                  msgCountLabel
+                )}</span>
+              </span>
             </div>
           </button>
-          <div class="thread-foot">
-            <span class="msg-count" title="${escapeHtml(msgCountLabel)}">${escapeHtml(
-              msgCountLabel
-            )}</span>
-            <button
-              type="button"
-              class="badge ${cat} clickable"
-              data-category-badge="${t.id}"
-              data-category="${cat}"
-              title="Change category"
-              aria-haspopup="menu"
-              aria-label="Change category for ${escapeHtml(t.display_name || "conversation")}"
-            >${categoryLabel(cat)}</button>
-          </div>
+          <button
+            type="button"
+            class="badge ${cat} clickable"
+            data-category-badge="${t.id}"
+            data-category="${cat}"
+            title="Change category"
+            aria-haspopup="menu"
+            aria-label="Change category for ${escapeHtml(t.display_name || "conversation")}"
+          >${categoryLabel(cat)}</button>
         </div>
       `;
     })
@@ -2422,7 +2422,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.32";
+    state.appVersion = health.version || state.appVersion || "1.0.33";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;
