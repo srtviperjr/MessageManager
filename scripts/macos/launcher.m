@@ -369,11 +369,14 @@ static BOOL resolve_paths(char *script_out, size_t script_n,
 
 - (void)pollServer {
   // If the server dies while the control window is open, exit cleanly.
+  // Poll /api/ping (not /api/health): health used to copy+COUNT chat.db and
+  // could exceed this timeout on large libraries, which looked like a crash.
   static BOOL sawUp = NO;
-  NSURL *url = [NSURL URLWithString:[self.baseURL stringByAppendingString:@"/api/health"]];
+  static NSInteger failStreak = 0;
+  NSURL *url = [NSURL URLWithString:[self.baseURL stringByAppendingString:@"/api/ping"]];
   NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
                                                      cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
-                                                 timeoutInterval:1.5];
+                                                 timeoutInterval:2.0];
   NSURLSessionDataTask *task =
       [[NSURLSession sharedSession] dataTaskWithRequest:req
                                       completionHandler:^(NSData *data, NSURLResponse *response, NSError *err) {
@@ -382,9 +385,15 @@ static BOOL resolve_paths(char *script_out, size_t script_n,
                                         dispatch_async(dispatch_get_main_queue(), ^{
                                           if (up) {
                                             sawUp = YES;
+                                            failStreak = 0;
                                             return;
                                           }
-                                          if (sawUp) {
+                                          if (!sawUp) {
+                                            return;
+                                          }
+                                          failStreak += 1;
+                                          // Require a few misses so a brief restart doesn't quit the app.
+                                          if (failStreak >= 3) {
                                             [NSApp terminate:nil];
                                           }
                                         });

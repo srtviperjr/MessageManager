@@ -344,11 +344,13 @@ wait_until_server_stops() {
 
 open_ui_once() {
   # Single open only — a retry was opening a second browser tab after upgrades.
-  if open "${URL}" >/dev/null 2>&1; then
-    log "Opened UI ${URL}"
+  # Append ?v= so upgrades bust a browser-cached index.html (old Settings UI).
+  local ui_url="${URL}/?v=$(bundled_version)"
+  if open "${ui_url}" >/dev/null 2>&1; then
+    log "Opened UI ${ui_url}"
     return 0
   fi
-  log "WARN: could not open ${URL}"
+  log "WARN: could not open ${ui_url}"
   return 1
 }
 
