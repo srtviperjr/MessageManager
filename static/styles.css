@@ -1119,6 +1119,14 @@ button.messages-count-btn:disabled {
   color: #8a6a20;
 }
 
+.fda-probe-list li.info .fda-mark {
+  color: #5a6a7a;
+}
+
+.fda-probe-list li.info {
+  background: #f4f7fa;
+}
+
 .fda-probe-list .fda-label {
   font-weight: 600;
 }
@@ -1128,6 +1136,19 @@ button.messages-count-btn:disabled {
   color: var(--ink-soft);
   font-size: 0.76rem;
   word-break: break-word;
+}
+
+.fda-steps {
+  margin: 0.4rem 0 0.75rem 1.1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.fda-guidance-ok {
+  color: var(--business);
+  font-weight: 600;
 }
 
 .settings-head {

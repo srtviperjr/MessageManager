@@ -47,7 +47,11 @@ from app.cache_refresh import (
     refresh_caches,
 )
 from app.fda_probe import probe_all
-from app.permissions_helper import grant_script_paths, run_grant_script
+from app.permissions_helper import (
+    grant_script_paths,
+    prepare_fda_grant,
+    run_grant_script,
+)
 from app.logs_api import list_log_files, read_log_file
 from app.migrations import run_migrations
 from app.platform_info import platform_status
@@ -231,7 +235,8 @@ def health() -> dict:
     contacts_ok = bool(contacts.get("available"))
     if not messages_ok:
         guidance = (
-            "Grant Full Disk Access to MessageManager.app, quit, and reopen."
+            "Enable Full Disk Access for Python.app and MessageManager, "
+            "then Settings → Cache → Prepare FDA → Retest → Sync cache."
         )
     else:
         # Access already works (live DB or launcher cache) — do not keep prompting.
@@ -382,14 +387,35 @@ def api_open_privacy_settings() -> dict:
     return {"ok": True}
 
 
+@app.post("/api/permissions/prepare-fda")
+def api_prepare_fda(
+    open_terminal: bool = Query(
+        default=False,
+        description="Also open the Terminal helper script (optional)",
+    ),
+) -> dict:
+    """Register MessageManager + Python.app, open FDA settings, reveal targets."""
+    try:
+        return prepare_fda_grant(open_terminal=open_terminal)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.post("/api/permissions/run-grant-script")
-def api_run_grant_script() -> dict:
+def api_run_grant_script(
+    open_terminal: bool = Query(
+        default=False,
+        description="Launch the helper in Terminal (optional; UI steps are preferred)",
+    ),
+) -> dict:
     """
-    Run the Full Disk Access helper: open settings, reveal app targets,
-    launch the script in Terminal, and save a copy to Downloads.
+    Open Full Disk Access, reveal MessageManager + Python.app, register them
+    with TCC so they appear in the list. Terminal helper is optional.
     """
     try:
-        return run_grant_script(open_terminal=True)
+        return run_grant_script(open_terminal=open_terminal, register=True)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except OSError as exc:
@@ -404,8 +430,8 @@ def api_cache_status() -> dict:
 @app.get("/api/permissions/fda-probe")
 def api_fda_probe(
     include_terminal: bool = Query(
-        default=True,
-        description="Also open Terminal briefly to test Terminal.app FDA",
+        default=False,
+        description="Also open Terminal briefly to test Terminal.app FDA (optional)",
     ),
 ) -> dict:
     """Test which apps can currently read ~/Library/Messages/chat.db."""

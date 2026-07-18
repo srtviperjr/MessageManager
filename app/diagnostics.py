@@ -151,34 +151,42 @@ def _checklist(messages: dict[str, Any], runtime: dict[str, Any]) -> list[dict[s
         },
         {
             "id": "cache_present",
-            "label": "Launcher cache",
+            "label": "Messages cache",
             "ok": bool(cache.get("exists")),
             "detail": (
                 "Ready"
                 if cache.get("exists")
-                else "Missing — grant FDA to MessageManager.app"
+                else "Missing — Prepare FDA for Python.app, then Sync cache"
             ),
         },
         {
             "id": "cache_readable",
             "label": "Readable by server",
             "ok": bool(messages.get("readable")),
-            "detail": "OK" if messages.get("readable") else "Permission denied",
+            "detail": (
+                "OK"
+                if messages.get("readable")
+                else "Sync cache after enabling Python.app FDA"
+            ),
         },
         {
             "id": "python_runtime",
-            "label": "Python runtime",
-            "ok": bool(python_exe),
-            "detail": _python_runtime_label(runtime),
+            "label": "Python.app (python.org)",
+            "ok": bool(fda_target and str(fda_target).endswith(".app")),
+            "detail": (
+                _short_path(fda_target)
+                if fda_target and str(fda_target).endswith(".app")
+                else "Install Python from python.org"
+            ),
         },
         {
             "id": "fda_targets",
             "label": "Enable in Full Disk Access",
             "ok": bool(messages.get("readable")),
             "detail": (
-                f"MessageManager.app + {fda_name}"
+                f"MessageManager.app + {fda_name} (not Terminal)"
                 if fda_target
-                else "MessageManager.app"
+                else "MessageManager.app + Python.app"
             ),
         },
     ]
