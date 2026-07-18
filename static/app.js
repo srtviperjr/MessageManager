@@ -119,7 +119,7 @@ const els = {
   installUpdateBtn: document.getElementById("install-update-btn"),
 };
 
-state.appVersion = "1.0.11";
+state.appVersion = "1.0.12";
 state.updateInfo = null;
 
 function formatWhen(iso) {
@@ -1125,10 +1125,10 @@ async function downloadAndInstallUpdate() {
       method: "POST",
       body: JSON.stringify({ url }),
     });
-    clearStatus(`Installer saved to ${result.path || "Downloads"} — complete the installer, then reopen MessageManager`);
+    clearStatus("Installer opened — finish the package install; MessageManager will relaunch on its own");
     if (els.updateStatus) {
       els.updateStatus.textContent =
-        "Installer opened. Finish the package install, then quit and reopen MessageManager so migrations can run.";
+        "Installer opened. Complete the package steps; the app relaunches quietly after install (no extra prompts).";
     }
   } catch (err) {
     clearStatus(err.message || "Update download failed");
@@ -1668,7 +1668,7 @@ async function init() {
   try {
     const health = await api("/api/health");
     state.settings = { ...state.settings, ...(health.settings || {}) };
-    state.appVersion = health.version || state.appVersion || "1.0.11";
+    state.appVersion = health.version || state.appVersion || "1.0.12";
     if (els.appVersionLabel) els.appVersionLabel.textContent = state.appVersion;
     if (els.settingsCurrentVersion) {
       els.settingsCurrentVersion.textContent = state.appVersion;

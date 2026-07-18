@@ -224,56 +224,51 @@ if [[ -n "${PYTHON_BIN}" ]]; then
   fi
 fi
 
-# Reveal the app in Finder so it is obvious where it landed.
-open -R "${APP}" >/dev/null 2>&1 || open /Applications >/dev/null 2>&1 || true
+# Do not open Finder / Applications — upgrades should stay silent.
+# Do not show success dialogs on upgrade.
 
-DEPS_NOTE="Python packages were prepared for first launch."
-if [[ "${DEPS_OK}" -ne 1 ]]; then
-  DEPS_NOTE="If launch fails, ensure Python 3.9+ is installed (python.org), then reopen MessageManager."
-fi
-
-# Only push Full Disk Access settings on first install (no cache yet). Upgrades
-# should not keep reopening Privacy settings when access was already granted.
 CACHE_DB="${CONSOLE_HOME}/Library/Application Support/MessageManager/messages-cache/chat.db"
 FIRST_INSTALL=0
 if [[ ! -f "${CACHE_DB}" ]]; then
   FIRST_INSTALL=1
+fi
+
+relaunch_app_quietly() {
+  # Prefer the console user so GUI launch works from installer (root) context.
+  local runner="${CONSOLE_USER}"
+  if [[ -z "${runner}" || "${runner}" == "root" ]]; then
+    open -a "${APP}" >/dev/null 2>&1 || true
+    return
+  fi
+  # Quit any running copy, then start the newly installed build.
+  su - "${runner}" -c "osascript -e 'tell application \"MessageManager\" to quit' >/dev/null 2>&1 || true" 2>/dev/null || true
+  sleep 0.6
+  su - "${runner}" -c "open -a '${APP}'" >/dev/null 2>&1 || open -a "${APP}" >/dev/null 2>&1 || true
+}
+
+if [[ "${FIRST_INSTALL}" -eq 1 ]]; then
+  # First install only: open Full Disk Access once, with a single setup dialog.
   open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" >/dev/null 2>&1 \
     || open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" >/dev/null 2>&1 \
     || true
-fi
-
-if [[ "${FIRST_INSTALL}" -eq 1 ]]; then
+  DEPS_NOTE="Python packages were prepared for first launch."
+  if [[ "${DEPS_OK}" -ne 1 ]]; then
+    DEPS_NOTE="If launch fails, install Python 3.9+ from python.org, then reopen MessageManager."
+  fi
   osascript >/dev/null 2>&1 <<EOF || true
-display dialog "MessageManager was installed in Applications.
+display dialog "MessageManager is installed.
 
-Next step (required once):
-1. In Privacy & Security → Full Disk Access, enable MessageManager
-2. If it is not listed, click +, choose Applications → MessageManager
-3. Quit MessageManager fully, then open it again
+Enable Full Disk Access for MessageManager (Privacy & Security), then click Open.
 
-${DEPS_NOTE}" buttons {"Open MessageManager", "OK"} default button "Open MessageManager" with title "MessageManager Setup"
-set choice to button returned of result
-if choice is "Open MessageManager" then
-  try
-    do shell script "open -a '${APP}'"
-  end try
-end if
+${DEPS_NOTE}" buttons {"Open MessageManager"} default button "Open MessageManager" with title "MessageManager Setup"
+try
+  do shell script "open -a '${APP}'"
+end try
 EOF
 else
-  osascript >/dev/null 2>&1 <<EOF || true
-display dialog "MessageManager was updated in Applications.
-
-${DEPS_NOTE}
-
-If Messages already load, you do not need to change Full Disk Access again." buttons {"Open MessageManager", "OK"} default button "Open MessageManager" with title "MessageManager Updated"
-set choice to button returned of result
-if choice is "Open MessageManager" then
-  try
-    do shell script "open -a '${APP}'"
-  end try
-end if
-EOF
+  # Upgrade: no dialogs, no Finder, no Privacy prompts — just relaunch.
+  log "Upgrade install — relaunching MessageManager quietly (no prompts)"
+  relaunch_app_quietly
 fi
 
 log "postinstall finished"

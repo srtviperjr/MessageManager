@@ -336,20 +336,25 @@ run_keepalive() {
 
 wait_until_server_stops() {
   log "Falling back to headless keep-alive (quit from the browser Quit button or stop the process)"
-  osascript -e "display notification \"MessageManager is running at ${URL}. Use Quit in the browser footer, or reopen the app to stop.\" with title \"MessageManager\"" >/dev/null 2>&1 || true
   while server_up; do
     sleep 2
   done
   log "Server stopped (headless keep-alive ending)"
 }
 
+open_ui_once() {
+  # Single open only — a retry was opening a second browser tab after upgrades.
+  if open "${URL}" >/dev/null 2>&1; then
+    log "Opened UI ${URL}"
+    return 0
+  fi
+  log "WARN: could not open ${URL}"
+  return 1
+}
+
 setup_runtime
 start_server
-# Bring the UI forward; retry once if the first open is ignored.
-open "${URL}" || true
-sleep 0.35
-open "${URL}" || true
-osascript -e "display notification \"MessageManager is ready\" with title \"MessageManager\"" >/dev/null 2>&1 || true
+open_ui_once || true
 
 # Native AppKit launcher owns the Dock process + Quit window. In that mode we
 # only bootstrap the server/UI, then exit so the parent keeps running.
